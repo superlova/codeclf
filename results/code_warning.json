@@ -1,0 +1,1 @@
+[{"path": ".\\testfile.py", "lineno": 4, "text": "loss, acc = self.model.evaluate(self.X_test, y_test, verbose=2)"}]

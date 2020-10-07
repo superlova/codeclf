@@ -180,17 +180,22 @@ class Classifier(object):
         # 先预编译一下，能通过的再进行进一步测试
         if self.use_ast == 'yes':
             tuple_list = self.reduce_sharpset_by_ast(tuple_list)
-        if len(tuple_list) <= 0: return  # 没发现值得关注的行，提前结束
+        if len(tuple_list) <= 0: 
+            #print("1:no text")
+            return  # 没发现值得关注的行，提前结束
         
         # 然后切分成token再输入token模型
         sharps = [x.get('text') for x in tuple_list]
         sharp_inputs, sharp_inputs_index = self.fromTextToTokenInputAndIndex(sharps)
         predict_label = self.lstm_model_token.predict_classes(sharp_inputs)
+        #print(sharps) # TODO
         code_item = []
         mask = [np.squeeze(predict_label) == 0]  # code
         for lineno in np.asarray(sharp_inputs_index)[mask]:
             code_item.append(tuple_list[lineno])
-        if len(code_item) <= 0: return  # 没发现值得关注的行，提前结束
+        if len(code_item) <= 0: 
+            #print("2:no text")
+            return  # 没发现值得关注的行，提前结束
         
         # 最后使用character模型逐字符判断
         tuple_list = code_item
@@ -201,7 +206,9 @@ class Classifier(object):
         mask = [np.squeeze(predict_label) == 0]  # code
         for lineno in np.asarray(sharp_inputs_index)[mask]:
             code_item.append(tuple_list[lineno])
-        if len(code_item) <= 0: return  # 没发现值得关注的行，提前结束
+        if len(code_item) <= 0: 
+            #print("3:no text")
+            return  # 没发现值得关注的行，提前结束
         
         # 保存结果
         self.dump_res(code_item) 
