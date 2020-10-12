@@ -6,6 +6,17 @@ import argparse
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras.preprocessing import sequence
+import time
+from functools import wraps
+def timethis(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        start = time.process_time()
+        r = func(*args, **kwargs)
+        end = time.process_time()
+        print('{}.{} : {}'.format(func.__module__, func.__name__, end - start))
+        return r
+    return wrapper
 
 def createGenerator(data):
     # tokenize.tokenize需要定义一个可迭代对象来获得token
@@ -77,7 +88,8 @@ class Classifier(object):
             56: lambda tokens, tokval: tokens.append(self.token_2_id.get('<SPE>')),
             57: lambda tokens, tokval: tokens.append(self.token_2_id.get('<COM>'))
         }
-
+        
+    @timethis
     def load_model(self):
         self.lstm_model_character = tf.keras.models.load_model(self.model_charactor_path)
         self.lstm_model_token = tf.keras.models.load_model(self.model_token_path)
@@ -85,6 +97,7 @@ class Classifier(object):
     def get_pyfile_path(self, root_path):
         '''获取指定目录及其子目录下所有的py文件的目录'''
         pyfiles = []
+        root_path = os.path.abspath(root_path)
         for file_path, _, files in os.walk(root_path):
             for file in files:
                 if file.endswith('.py'):
@@ -102,6 +115,7 @@ class Classifier(object):
             pass
         return sharps
 
+    @timethis
     def gather_sharp_data(self, pyfiles):
         '''读取指定path对应的py文件的文本，并提取其#开头的所有行'''
         sharp_data = []
@@ -109,9 +123,15 @@ class Classifier(object):
             pycontent = self.read_txtfile(pyfile)
             for lineno, line in enumerate(pycontent):
                 if line.lstrip().startswith('#'):
-                    sharp_data.append({'path': pyfile, 'lineno': lineno, 'text': line.lstrip(' #').rstrip()})
+                    dic = {
+                        'file': pyfile, 
+                        'line': lineno, 
+                        'highlighted_element': line.lstrip(' #').rstrip()
+                    }
+                    sharp_data.append(dic)
         return sharp_data
 
+    @timethis
     def fromTextToCharacterInputAndIndex(self, text, threshold=3, maxlen=70):
         '''输入[line]，输出适合直接学习的[input]与对应的[index]。
         目的是筛选那些长度过短的line，同时将text一次性转换的效率高一些。
@@ -147,6 +167,7 @@ class Classifier(object):
             pass
         return tokens
 
+    @timethis
     def fromTextToTokenInputAndIndex(self, text, threshold=3, maxlen=30):
         '''输入[line]，输出适合直接学习的[input]与对应的[index]。
         目的是筛选那些长度过短的line，同时将text一次性转换的效率高一些。
@@ -160,63 +181,86 @@ class Classifier(object):
                 Inputs.append(int_array)
         return sequence.pad_sequences(np.asarray(Inputs), padding='post', value=0, maxlen=maxlen), Index
 
+    @timethis
     def reduce_sharpset_by_ast(self, tuple_list):
-        '''输入全部[{path,lineno,text}]，输出编译通过的[{path,lineno,text}]'''
+        '''输入全部[{file,line,highlighted_element}]，输出编译通过的[{file,line,highlighted_element}]'''
         reduced_set = []
         for item in tuple_list:
             try:
                 # file_path, lineno, text
-                ast.parse(item['text']) # 尝试编译
+                text_line = item['highlighted_element']
+                
+                if text_line.startswith('[') and text_line.rstrip(',').endswith(']') or text_line.startswith('(') and text_line.rstrip(',').endswith(')'):
+                    continue
+                ast.parse(text_line) # 尝试编译
                 reduced_set.append(item)
             except:
                 pass # 不通过说明不是可执行代码
         return reduced_set
 
+    @timethis
     def classify(self):
-        '''输入全部[{path,lineno,text}]，输出被怀疑为代码的[{path,lineno,text}]'''
+        '''输入全部[{file,line,highlighted_element}]，输出被怀疑为代码的[{file,line,highlighted_element}]'''
         # 获得数据
         tuple_list = self.gather_sharp_data(self.get_pyfile_path(self.root_path))
-        
+        print("all testing comment number: ", len(tuple_list))
         # 先预编译一下，能通过的再进行进一步测试
         if self.use_ast == 'yes':
             tuple_list = self.reduce_sharpset_by_ast(tuple_list)
         if len(tuple_list) <= 0: 
-            #print("1:no text")
+            print("1:no warning code")
             return  # 没发现值得关注的行，提前结束
         
         # 然后切分成token再输入token模型
-        sharps = [x.get('text') for x in tuple_list]
+        sharps = [x.get('highlighted_element') for x in tuple_list]
         sharp_inputs, sharp_inputs_index = self.fromTextToTokenInputAndIndex(sharps)
-        predict_label = self.lstm_model_token.predict_classes(sharp_inputs)
-        #print(sharps) # TODO
+        #predict_label = self.lstm_model_token.predict_classes(sharp_inputs)
+        predict_label = (self.lstm_model_token.predict(sharp_inputs) > 0.5).astype("int32")
         code_item = []
         mask = [np.squeeze(predict_label) == 0]  # code
-        for lineno in np.asarray(sharp_inputs_index)[mask]:
+        for lineno in np.asarray(sharp_inputs_index)[tuple(mask)]:
             code_item.append(tuple_list[lineno])
         if len(code_item) <= 0: 
-            #print("2:no text")
+            print("2:no warning code")
             return  # 没发现值得关注的行，提前结束
         
         # 最后使用character模型逐字符判断
         tuple_list = code_item
-        sharps = [x.get('text') for x in tuple_list]
+        sharps = [x.get('highlighted_element') for x in tuple_list]
         sharp_inputs, sharp_inputs_index = self.fromTextToCharacterInputAndIndex(sharps)
-        predict_label = self.lstm_model_character.predict_classes(sharp_inputs)
+        #predict_label = self.lstm_model_character.predict_classes(sharp_inputs)
+        predict_label = (self.lstm_model_character.predict(sharp_inputs) > 0.5).astype("int32")
         code_item = []
         mask = [np.squeeze(predict_label) == 0]  # code
-        for lineno in np.asarray(sharp_inputs_index)[mask]:
+        for lineno in np.asarray(sharp_inputs_index)[tuple(mask)]:
             code_item.append(tuple_list[lineno])
-        if len(code_item) <= 0: 
+        #if len(code_item) <= 0: 
             #print("3:no text")
-            return  # 没发现值得关注的行，提前结束
-        
+            #return  # 没发现值得关注的行，提前结束
+        print("warning comment number: ", len(code_item))
         # 保存结果
-        self.dump_res(code_item) 
-        return code_item
+        self.dump_res(code_item)
 
+    @timethis
     def dump_res(self, tuple_list):
+        '''添加一些其他信息，然后整合成code_warning.json'''
+        for dic in tuple_list:
+            dic['offset'] = 0
+            dic['length'] = 0
+            dic['module'] = ''
+            dic['problem_class'] = {
+                'name': '8_2',
+                'severity': '',
+                'inspection_name': '8_2',
+                'attribute_key': ''
+            }
+            dic['entry_point'] = {
+                'TYPE': '',
+                'FQNAME': ''
+            }
+            dic['description'] = 'Do not use comment lines to make the code invalid.'
         with open(os.path.join(self.outfile, 'code_warning.json'), 'w') as f:
-            json.dump(tuple_list, f)
+            json.dump({'problems': tuple_list}, f)
 
 def main():
     parser = argparse.ArgumentParser(description='Check if pyfile contains psudo-docstring.')
