@@ -20,7 +20,6 @@ def timethis(func):
 
 def createGenerator(data):
     # tokenize.tokenize需要定义一个可迭代对象来获得token
-
     def Generator():
         for elem in data:
             try:
@@ -37,18 +36,16 @@ def createGenerator(data):
 class Classifier(object):
     def __init__(self,
                  root_path,
-                 model_charactor_path,
+                 model_character_path,
                  model_token_path,
                  vocab_path,
                  outfile,
-                 use_ast
                  ):
-        self.model_charactor_path = model_charactor_path
+        self.model_character_path = model_character_path
         self.model_token_path = model_token_path
         self.root_path = root_path
         self.vocab_path = vocab_path
         self.outfile = outfile
-        self.use_ast = use_ast
 
         self.load_model()
         self.init_character_dict()
@@ -94,7 +91,7 @@ class Classifier(object):
         
     @timethis
     def load_model(self):
-        self.lstm_model_character = tf.keras.models.load_model(self.model_charactor_path)
+        self.lstm_model_character = tf.keras.models.load_model(self.model_character_path)
         self.lstm_model_token = tf.keras.models.load_model(self.model_token_path)
 
     def get_pyfile_path(self, root_path):
@@ -118,7 +115,6 @@ class Classifier(object):
             pass
         return sharps
 
-    @timethis
     def gather_sharp_data(self, pyfiles):
         '''读取指定path对应的py文件的文本，并提取其#开头的所有行'''
         sharp_data = []
@@ -134,7 +130,6 @@ class Classifier(object):
                     sharp_data.append(dic)
         return sharp_data
 
-    @timethis
     def fromTextToCharacterInputAndIndex(self, text, threshold=3, maxlen=70):
         '''输入[line]，输出适合直接学习的[input]与对应的[index]。
         目的是筛选那些长度过短的line，同时将text一次性转换的效率高一些。
@@ -170,7 +165,6 @@ class Classifier(object):
             pass
         return tokens
 
-    @timethis
     def fromTextToTokenInputAndIndex(self, text, threshold=3, maxlen=30):
         '''输入[line]，输出适合直接学习的[input]与对应的[index]。
         目的是筛选那些长度过短的line，同时将text一次性转换的效率高一些。
@@ -184,27 +178,37 @@ class Classifier(object):
                 Inputs.append(int_array)
         return sequence.pad_sequences(np.asarray(Inputs), padding='post', value=0, maxlen=maxlen), Index
 
-    @timethis
-    def reduce_sharpset_by_ast(self, tuple_list):
-        '''输入全部[{file,line,highlighted_element}]，输出编译通过的[{file,line,highlighted_element}]'''
-        reduced_set = []
+    def reduce_sharpset_by_rule(self, tuple_list):
+        '''输入全部[{file,line,highlighted_element}]，输出符合规则的[{file,line,highlighted_element}]'''
+        reduced_set = [] # 还需进一步判断的行
+        code_set = [] # 不需进一步判断的行
+
         for item in tuple_list:
             try:
-                # file_path, lineno, text
                 text_line = item['highlighted_element']
-                
-                if text_line.startswith('[') and text_line.rstrip(',').endswith(']') \
-                        or text_line.startswith('(') and text_line.rstrip(',').endswith(')')\
-                        or len(text_line.strip('=')) < 1\
+                if len(text_line.strip('=\'\"')) <= 1\
                         or text_line == "coding=utf-8"\
                         or text_line[0].isupper() and text_line.endswith('.')\
                         or not text_line.isascii():
+                    # 出现这种特征，代表着绝不可能是代码
                     continue
-                #ast.parse(text_line) # 尝试编译
+                elif text_line.startswith("from ") or text_line.startswith("import ")\
+                        or text_line.startswith("self.") or " = " in text_line:
+                    # 出现这种特征，是代码的可能性大，需要经过一遍编译
+                    # 通过编译则为代码，不通过则录入reduced_set
+                    ast.parse(text_line) # 尝试编译
+                    code_set.append(item)
+                    continue
+                elif text_line.startswith('[') and text_line.rstrip(',').endswith(']') \
+                        or text_line.startswith('(') and text_line.rstrip(',').endswith(')') \
+                        or text_line.startswith("if __name__ =="):
+                    # 出现这种特征，肯定是代码
+                    code_set.append(item)
+                    continue
                 reduced_set.append(item)
             except:
-                pass # 不通过说明不是可执行代码
-        return reduced_set
+                reduced_set.append(item) # 不通过说明from语句没通过编译
+        return reduced_set, code_set
 
     @timethis
     def classify(self):
@@ -216,63 +220,51 @@ class Classifier(object):
         else:
             tuple_list = self.gather_sharp_data(self.get_pyfile_path(self.root_path))
         print("all testing comment number: ", len(tuple_list))
-        code_item = []
-        # 先预编译一下，能通过的再进行进一步测试
-        if self.use_ast == 'yes':
-            tuple_list = self.reduce_sharpset_by_ast(tuple_list)
-        # if len(tuple_list) <= 0:
-        #     print("1:no warning code")
-        #     return  # 没发现值得关注的行，提前结束
+
+        # 依照确定性算法，将注释分为需要进一步判断的tuple_list和code_list
+        tuple_list, code_list = self.reduce_sharpset_by_rule(tuple_list)
+        # 防止模型输入为空
+        if len(tuple_list) <= 0:
+            print("1:no commented-out code")
+            # 保存结果
+            self.dump_res(code_list)
+            return  # 没发现值得进一步分析的行，提前结束
         
         # 然后切分成token再输入token模型
-        ######################
-        # sharps = [x.get('highlighted_element') for x in tuple_list]
-        # sharp_inputs, sharp_inputs_index = self.fromTextToTokenInputAndIndex(sharps)
-        # #predict_label = self.lstm_model_token.predict_classes(sharp_inputs)
-        # predict_label = (self.lstm_model_token.predict(sharp_inputs) > 0.5).astype("int32")
-        # code_item_token = []
-        # mask = [np.squeeze(predict_label) == 0]  # code
-        # for lineno in np.asarray(sharp_inputs_index)[tuple(mask)]:
-        #     code_item_token.append(tuple_list[lineno])
-        # print("warning code_item_token: ", len(code_item_token))
-        ######################
-        # if len(code_item) <= 0:
-        #     print("2:no warning code")
-        #     return  # 没发现值得关注的行，提前结束
-        
+        sharps = [x.get('highlighted_element') for x in tuple_list]
+        sharp_inputs, sharp_inputs_index = self.fromTextToTokenInputAndIndex(sharps)
+        predict_label = (self.lstm_model_token.predict(sharp_inputs) > 0.5).astype("int32")
+        code_item_token = []
+        mask = [np.squeeze(predict_label) == 0]  # code
+        for lineno in np.asarray(sharp_inputs_index)[tuple(mask)]:
+            code_item_token.append(tuple_list[lineno])
+        print("warning code_item_token: ", len(code_item_token))
+
         # 最后使用character模型逐字符判断
-        # tuple_list = code_item
-        ######################
         sharps = [x.get('highlighted_element') for x in tuple_list]
         sharp_inputs, sharp_inputs_index = self.fromTextToCharacterInputAndIndex(sharps)
-        #predict_label = self.lstm_model_character.predict_classes(sharp_inputs)
         predict_label = (self.lstm_model_character.predict(sharp_inputs) > 0.5).astype("int32")
         code_item_char = []
         mask = [np.squeeze(predict_label) == 0]  # code
         for lineno in np.asarray(sharp_inputs_index)[tuple(mask)]:
             code_item_char.append(tuple_list[lineno])
         print("warning code_item_char: ", len(code_item_char))
-        ######################
-        #if len(code_item) <= 0: 
-            #print("3:no text")
-            #return  # 没发现值得关注的行，提前结束
 
-        ######################
-        # for item in code_item_char:
-        #     for item2 in code_item_token:
-        #         if item.get('highlighted_element') == item2.get('highlighted_element'):
-        #             break
-        #     else:
-        #         # item is not in code_item_token
-        #         code_item.append(item)
-        ######################
-        code_item.extend(code_item_char)
-        # code_item = list(set(code_item_token).union(set(code_item_char)))
-        print("warning comment number: ", len(code_item))
+        code_list.extend(code_item_char)
+        # 两个集合取并集
+        for item in code_item_token:
+            for item2 in code_item_char:
+                if item.get('highlighted_element') == item2.get('highlighted_element') \
+                        and item.get('line') == item2.get('line')\
+                        and item.get('file') == item2.get('file'):
+                    break
+            else:
+                code_list.append(item)
+
+        print("warning comment number: ", len(code_list))
         # 保存结果
-        self.dump_res(code_item)
+        self.dump_res(code_list)
 
-    @timethis
     def dump_res(self, tuple_list):
         '''添加一些其他信息，然后整合成code_warning.json'''
         for dic in tuple_list:
@@ -295,16 +287,16 @@ class Classifier(object):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Check if pyfile contains psudo-docstring.')
+    parser = argparse.ArgumentParser(description='Check if pyfile contains commented-out code.')
 
     parser.add_argument(dest='root_path', metavar='root_path',
                         help='Check project root path')
 
-    parser.add_argument('-mc', '--model_charactor_path',
-                        metavar='model_charactor_path',
+    parser.add_argument('-mc', '--model_character_path',
+                        metavar='model_character_path',
                         default='models/mc.hdf5',
-                        dest='model_charactor_path',
-                        help='charactor based model path')
+                        dest='model_character_path',
+                        help='character based model path')
 
     parser.add_argument('-mt', '--model_token_path',
                         metavar='model_token_path',
@@ -322,18 +314,14 @@ def main():
                         default='results',
                         help='output file path')
 
-    parser.add_argument('--ast', dest='use_ast',
-                        choices={'yes', 'no'}, default='yes',
-                        help='whether use ast')
-
     args = parser.parse_args()
 
     args = {'root_path':args.root_path,
-            'model_charactor_path':args.model_charactor_path,
+            'model_character_path':args.model_character_path,
             'model_token_path':args.model_token_path,
             'vocab_path':args.vocab_path,
             'outfile':args.outfile,
-            'use_ast':args.use_ast}
+            }
 
     classifier = Classifier(**args)
     classifier.classify()

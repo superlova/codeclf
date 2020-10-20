@@ -7,7 +7,6 @@ def main():
     file = os.path.join(result_path, 'code_warning.json')
     with open(file, 'r') as f:
         json_dict = json.load(f)
-    # print(json_dict)
     csv_file = os.path.join(result_path, "code_warning.csv")
     csv_columns = ['file', 'line', 'highlighted_element', 'offset', 'length', 'module', 'problem_class', 'entry_point', 'description']
     try:
