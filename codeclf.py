@@ -128,7 +128,7 @@ class Classifier(object):
                 if line.lstrip().startswith('#'):
                     dic = {
                         'file': pyfile, 
-                        'line': lineno, 
+                        'line': lineno+1,
                         'highlighted_element': line.lstrip(' #').rstrip()
                     }
                     sharp_data.append(dic)
@@ -210,7 +210,11 @@ class Classifier(object):
     def classify(self):
         '''输入全部[{file,line,highlighted_element}]，输出被怀疑为代码的[{file,line,highlighted_element}]'''
         # 获得数据
-        tuple_list = self.gather_sharp_data(self.get_pyfile_path(self.root_path))
+        if self.root_path.endswith('.py'):
+            path = os.path.abspath(self.root_path)
+            tuple_list = self.gather_sharp_data([path])
+        else:
+            tuple_list = self.gather_sharp_data(self.get_pyfile_path(self.root_path))
         print("all testing comment number: ", len(tuple_list))
         code_item = []
         # 先预编译一下，能通过的再进行进一步测试
@@ -242,7 +246,7 @@ class Classifier(object):
         sharps = [x.get('highlighted_element') for x in tuple_list]
         sharp_inputs, sharp_inputs_index = self.fromTextToCharacterInputAndIndex(sharps)
         #predict_label = self.lstm_model_character.predict_classes(sharp_inputs)
-        predict_label = (self.lstm_model_character.predict(sharp_inputs) > 0.2).astype("int32")
+        predict_label = (self.lstm_model_character.predict(sharp_inputs) > 0.5).astype("int32")
         code_item_char = []
         mask = [np.squeeze(predict_label) == 0]  # code
         for lineno in np.asarray(sharp_inputs_index)[tuple(mask)]:
