@@ -14,12 +14,13 @@ def timethis(func):
         start = time.process_time()
         r = func(*args, **kwargs)
         end = time.process_time()
-        print('{}.{} : {}'.format(func.__module__, func.__name__, end - start))
+        print('{}.{} : {}s'.format(func.__module__, func.__name__, end - start))
         return r
     return wrapper
 
 def createGenerator(data):
     # tokenize.tokenize需要定义一个可迭代对象来获得token
+
     def Generator():
         for elem in data:
             try:
@@ -27,9 +28,11 @@ def createGenerator(data):
             except:
                 yield str.encode('')
     g = Generator()  # 生成器
+
     def g_fn():
         return next(g)
     return g_fn  # 迭代器
+
 
 class Classifier(object):
     def __init__(self,
@@ -190,9 +193,14 @@ class Classifier(object):
                 # file_path, lineno, text
                 text_line = item['highlighted_element']
                 
-                if text_line.startswith('[') and text_line.rstrip(',').endswith(']') or text_line.startswith('(') and text_line.rstrip(',').endswith(')'):
+                if text_line.startswith('[') and text_line.rstrip(',').endswith(']') \
+                        or text_line.startswith('(') and text_line.rstrip(',').endswith(')')\
+                        or len(text_line.strip('=')) < 1\
+                        or text_line == "coding=utf-8"\
+                        or text_line[0].isupper() and text_line.endswith('.')\
+                        or not text_line.isascii():
                     continue
-                ast.parse(text_line) # 尝试编译
+                #ast.parse(text_line) # 尝试编译
                 reduced_set.append(item)
             except:
                 pass # 不通过说明不是可执行代码
@@ -204,39 +212,58 @@ class Classifier(object):
         # 获得数据
         tuple_list = self.gather_sharp_data(self.get_pyfile_path(self.root_path))
         print("all testing comment number: ", len(tuple_list))
+        code_item = []
         # 先预编译一下，能通过的再进行进一步测试
         if self.use_ast == 'yes':
             tuple_list = self.reduce_sharpset_by_ast(tuple_list)
-        if len(tuple_list) <= 0: 
-            print("1:no warning code")
-            return  # 没发现值得关注的行，提前结束
+        # if len(tuple_list) <= 0:
+        #     print("1:no warning code")
+        #     return  # 没发现值得关注的行，提前结束
         
         # 然后切分成token再输入token模型
-        sharps = [x.get('highlighted_element') for x in tuple_list]
-        sharp_inputs, sharp_inputs_index = self.fromTextToTokenInputAndIndex(sharps)
-        #predict_label = self.lstm_model_token.predict_classes(sharp_inputs)
-        predict_label = (self.lstm_model_token.predict(sharp_inputs) > 0.5).astype("int32")
-        code_item = []
-        mask = [np.squeeze(predict_label) == 0]  # code
-        for lineno in np.asarray(sharp_inputs_index)[tuple(mask)]:
-            code_item.append(tuple_list[lineno])
-        if len(code_item) <= 0: 
-            print("2:no warning code")
-            return  # 没发现值得关注的行，提前结束
+        ######################
+        # sharps = [x.get('highlighted_element') for x in tuple_list]
+        # sharp_inputs, sharp_inputs_index = self.fromTextToTokenInputAndIndex(sharps)
+        # #predict_label = self.lstm_model_token.predict_classes(sharp_inputs)
+        # predict_label = (self.lstm_model_token.predict(sharp_inputs) > 0.5).astype("int32")
+        # code_item_token = []
+        # mask = [np.squeeze(predict_label) == 0]  # code
+        # for lineno in np.asarray(sharp_inputs_index)[tuple(mask)]:
+        #     code_item_token.append(tuple_list[lineno])
+        # print("warning code_item_token: ", len(code_item_token))
+        ######################
+        # if len(code_item) <= 0:
+        #     print("2:no warning code")
+        #     return  # 没发现值得关注的行，提前结束
         
         # 最后使用character模型逐字符判断
-        tuple_list = code_item
+        # tuple_list = code_item
+        ######################
         sharps = [x.get('highlighted_element') for x in tuple_list]
         sharp_inputs, sharp_inputs_index = self.fromTextToCharacterInputAndIndex(sharps)
         #predict_label = self.lstm_model_character.predict_classes(sharp_inputs)
-        predict_label = (self.lstm_model_character.predict(sharp_inputs) > 0.5).astype("int32")
-        code_item = []
+        predict_label = (self.lstm_model_character.predict(sharp_inputs) > 0.2).astype("int32")
+        code_item_char = []
         mask = [np.squeeze(predict_label) == 0]  # code
         for lineno in np.asarray(sharp_inputs_index)[tuple(mask)]:
-            code_item.append(tuple_list[lineno])
+            code_item_char.append(tuple_list[lineno])
+        print("warning code_item_char: ", len(code_item_char))
+        ######################
         #if len(code_item) <= 0: 
             #print("3:no text")
             #return  # 没发现值得关注的行，提前结束
+
+        ######################
+        # for item in code_item_char:
+        #     for item2 in code_item_token:
+        #         if item.get('highlighted_element') == item2.get('highlighted_element'):
+        #             break
+        #     else:
+        #         # item is not in code_item_token
+        #         code_item.append(item)
+        ######################
+        code_item.extend(code_item_char)
+        # code_item = list(set(code_item_token).union(set(code_item_char)))
         print("warning comment number: ", len(code_item))
         # 保存结果
         self.dump_res(code_item)
@@ -261,6 +288,7 @@ class Classifier(object):
             dic['description'] = 'Do not use comment lines to make the code invalid.'
         with open(os.path.join(self.outfile, 'code_warning.json'), 'w') as f:
             json.dump({'problems': tuple_list}, f)
+
 
 def main():
     parser = argparse.ArgumentParser(description='Check if pyfile contains psudo-docstring.')
@@ -305,6 +333,7 @@ def main():
 
     classifier = Classifier(**args)
     classifier.classify()
+
 
 if __name__ == '__main__':
     main()
