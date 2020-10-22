@@ -2,12 +2,15 @@ import tokenize
 import ast
 import os
 import json
+import re
 import argparse
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras.preprocessing import sequence
 import time
 from functools import wraps
+import keyword
+
 def timethis(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
@@ -18,6 +21,7 @@ def timethis(func):
         return r
     return wrapper
 
+
 def createGenerator(data):
     # tokenize.tokenize需要定义一个可迭代对象来获得token
     def Generator():
@@ -27,7 +31,6 @@ def createGenerator(data):
             except:
                 yield str.encode('')
     g = Generator()  # 生成器
-
     def g_fn():
         return next(g)
     return g_fn  # 迭代器
@@ -46,10 +49,11 @@ class Classifier(object):
         self.root_path = root_path
         self.vocab_path = vocab_path
         self.outfile = outfile
-
         self.load_model()
         self.init_character_dict()
         self.init_token_dict(self.vocab_path)
+        self.init_adjacent_dict("vocabs/vocab_keywords.txt")
+        self.pure_word_pat = re.compile(r'^[A-Za-z0-9_ ]+$')
 
     def init_character_dict(self):
         # define the raw dataset
@@ -88,7 +92,13 @@ class Classifier(object):
             56: lambda tokens, tokval: tokens.append(self.token_2_id.get('<SPE>')),
             57: lambda tokens, tokval: tokens.append(self.token_2_id.get('<COM>'))
         }
-        
+
+    def init_adjacent_dict(self, vocab_path):
+        self.id_vocab = []
+        with open(vocab_path, 'r', encoding='utf8') as f:
+            for line in f:
+                self.id_vocab.append(line.rstrip('\n'))
+
     @timethis
     def load_model(self):
         self.lstm_model_character = tf.keras.models.load_model(self.model_character_path)
@@ -111,7 +121,7 @@ class Classifier(object):
             with open(filename, 'r', encoding='utf8') as f:
                 for line in f:
                     sharps.append(line.strip('\n'))
-        except UnicodeDecodeError as e:
+        except UnicodeDecodeError:
             pass
         return sharps
 
@@ -159,11 +169,32 @@ class Classifier(object):
             for toknum, tokval, _, _, _ in tokens_iterator:
                 try:
                     self.switch[toknum](tokens, tokval)
-                except KeyError as e:
+                except KeyError:
                     pass
-        except tokenize.TokenError as e:
+        except tokenize.TokenError:
             pass
         return tokens
+
+    def check_adjacent_id(self, row):
+        data_generator = createGenerator(row)
+        tokens_iterator = tokenize.tokenize(data_generator)
+        res = []
+        try:
+            for toknum, tokval, _, _, _ in tokens_iterator:
+                res.append((toknum, tokval))
+        except tokenize.TokenError:
+            pass
+
+        last = False
+        for toknum, tokval in res:
+            if toknum == 1 and tokval not in self.id_vocab:
+                if last:
+                    return True
+                else:
+                    last = True
+            else:
+                last = False
+        return False
 
     def fromTextToTokenInputAndIndex(self, text, threshold=3, maxlen=30):
         '''输入[line]，输出适合直接学习的[input]与对应的[index]。
@@ -172,6 +203,9 @@ class Classifier(object):
         Inputs = []
         Index = []
         for index, row in enumerate(text):
+            # 筛选那些相邻的id，2代表单词表外的id
+            if self.check_adjacent_id([row]):
+                continue
             int_array = np.asarray(self.fromTextToTokenID([row]))
             if len(int_array) >= threshold:
                 Index.append(index)
@@ -186,22 +220,22 @@ class Classifier(object):
         for item in tuple_list:
             try:
                 text_line = item['highlighted_element']
-                if len(text_line.strip('=\'\"')) <= 1\
+                if len(text_line.strip('=\'\"')) <= 1 \
                         or text_line == "coding=utf-8"\
                         or text_line[0].isupper() and text_line.endswith('.')\
                         or not text_line.isascii():
                     # 出现这种特征，代表着绝不可能是代码
                     continue
                 elif text_line.startswith("from ") or text_line.startswith("import ")\
-                        or text_line.startswith("self.") or " = " in text_line:
+                        or text_line.startswith("self.") or " = " in text_line\
+                        or text_line.startswith('(') and text_line.rstrip(',').endswith(')')\
+                        or text_line.startswith('[') and text_line.rstrip(',').endswith(']'):
                     # 出现这种特征，是代码的可能性大，需要经过一遍编译
                     # 通过编译则为代码，不通过则录入reduced_set
                     ast.parse(text_line) # 尝试编译
                     code_set.append(item)
                     continue
-                elif text_line.startswith('[') and text_line.rstrip(',').endswith(']') \
-                        or text_line.startswith('(') and text_line.rstrip(',').endswith(')') \
-                        or text_line.startswith("if __name__ =="):
+                elif text_line.startswith("if __name__ =="):
                     # 出现这种特征，肯定是代码
                     code_set.append(item)
                     continue
