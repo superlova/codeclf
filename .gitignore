@@ -1,1 +1,3 @@
 /results/*
+/testfile/*
+.gitignore

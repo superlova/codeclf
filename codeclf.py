@@ -4,18 +4,16 @@
 @Author Zhang YT
 @Date 2020/10/23 14:38
 """
-
-import tokenize
-import ast
 import os
-import json
-import argparse
-import numpy as np
-import tensorflow as tf
+from tokenize import tokenize, TokenError
+from ast import parse
+from json import dump
+from argparse import ArgumentParser
+from numpy import asarray, squeeze
+from tensorflow.keras.models import load_model
 from tensorflow.keras.preprocessing import sequence
-import time
+from time import process_time
 from functools import wraps
-import keyword
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # 忽略警告信息，不加这一句警告贼多
 
@@ -24,9 +22,9 @@ def timethis(func):
     """计时函数装饰器"""
     @wraps(func)
     def wrapper(*args, **kwargs):
-        start = time.process_time()
+        start = process_time()
         r = func(*args, **kwargs)
-        end = time.process_time()
+        end = process_time()
         print('{} executing time: {}s'.format(func.__name__, end - start))
         return r
     return wrapper
@@ -70,8 +68,8 @@ class Classifier(object):
         self.init_adjacent_dict("vocabs/vocab_keywords.txt")  # 初始化python保留字表
 
     def load_model(self):
-        self.lstm_model_character = tf.keras.models.load_model(self.model_character_path)
-        self.lstm_model_token = tf.keras.models.load_model(self.model_token_path)
+        self.lstm_model_character = load_model(self.model_character_path)
+        self.lstm_model_token = load_model(self.model_token_path)
 
     def init_character_dict(self):
         """初始化character模型所必需的词表"""
@@ -160,17 +158,17 @@ class Classifier(object):
         inputs = []
         indexes = []
         for index, row in enumerate(text):
-            char_array = np.asarray(list(row), dtype=str)
-            int_array = np.asarray(list(map(check_dict, char_array)))
+            char_array = asarray(list(row), dtype=str)
+            int_array = asarray(list(map(check_dict, char_array)))
             if len(int_array) >= threshold:
                 inputs.append(int_array)
                 indexes.append(index)
-        return sequence.pad_sequences(np.asarray(inputs), padding='post', value=0, maxlen=maxlen), indexes
+        return sequence.pad_sequences(asarray(inputs), padding='post', value=0, maxlen=maxlen), indexes
 
     def from_text_to_token_id(self, row):
         """把一行代码转成token"""
         data_generator = create_generator([row])
-        tokens_iterator = tokenize.tokenize(data_generator)
+        tokens_iterator = tokenize(data_generator)
         tokens = []
         try:
             for toknum, tokval, _, _, _ in tokens_iterator:
@@ -190,19 +188,19 @@ class Classifier(object):
                     tokens.append(self.token_2_id.get('<SPE>'))
                 elif toknum == 57:
                     tokens.append(self.token_2_id.get('<COM>'))
-        except tokenize.TokenError:
+        except TokenError:
             pass  # 遍历到末尾会raise error
         return tokens
 
     def check_adjacent_id(self, row):
         """检查有没有相邻的两个id"""
         data_generator = create_generator([row])
-        tokens_iterator = tokenize.tokenize(data_generator)
+        tokens_iterator = tokenize(data_generator)
         res = []
         try:
             for toknum, tokval, _, _, _ in tokens_iterator:
                 res.append((toknum, tokval))
-        except tokenize.TokenError:
+        except TokenError:
             pass
         # 检查有没有相邻的两个id，有的话则不是code
         for i in range(len(res) - 1):
@@ -224,11 +222,11 @@ class Classifier(object):
             # 筛选那些相邻的id，2代表单词表外的id
             if self.check_adjacent_id(row):
                 continue
-            int_array = np.asarray(self.from_text_to_token_id(row))
+            int_array = asarray(self.from_text_to_token_id(row))
             if len(int_array) >= threshold:
                 indexes.append(index)
                 inputs.append(int_array)
-        return sequence.pad_sequences(np.asarray(inputs), padding='post', value=0, maxlen=maxlen), indexes
+        return sequence.pad_sequences(asarray(inputs), padding='post', value=0, maxlen=maxlen), indexes
 
     @staticmethod
     def reduce_sharp_by_rule(tuple_list):
@@ -251,7 +249,7 @@ class Classifier(object):
                         or text_line.startswith('[') and text_line.rstrip(',').endswith(']'):
                     # 出现这种特征，是代码的可能性大，需要经过一遍编译
                     # 通过编译则为代码，不通过则录入reduced_set
-                    ast.parse(text_line)  # 尝试编译
+                    parse(text_line)  # 尝试编译
                     code_set.append(item)
                     continue
                 elif text_line.startswith("if __name__ =="):
@@ -291,8 +289,8 @@ class Classifier(object):
         sharp_inputs, sharp_inputs_index = self.from_text_to_token_input_and_index(sharps)
         predict_label = (self.lstm_model_token.predict(sharp_inputs) > 0.5).astype("int32")
         code_item_token = []
-        mask = [np.squeeze(predict_label) == 0]  # code
-        for lineno in np.asarray(sharp_inputs_index)[tuple(mask)]:
+        mask = [squeeze(predict_label) == 0]  # code
+        for lineno in asarray(sharp_inputs_index)[tuple(mask)]:
             code_item_token.append(tuple_list[lineno])
         print("Commented code number find by `token` model: ", len(code_item_token))
 
@@ -301,8 +299,8 @@ class Classifier(object):
         sharp_inputs, sharp_inputs_index = self.from_text_to_character_input_and_index(sharps)
         predict_label = (self.lstm_model_character.predict(sharp_inputs) > 0.5).astype("int32")
         code_item_char = []
-        mask = [np.squeeze(predict_label) == 0]  # code
-        for lineno in np.asarray(sharp_inputs_index)[tuple(mask)]:
+        mask = [squeeze(predict_label) == 0]  # code
+        for lineno in asarray(sharp_inputs_index)[tuple(mask)]:
             code_item_char.append(tuple_list[lineno])
         print("Commented code number find by `character` model: ", len(code_item_char))
 
@@ -338,11 +336,11 @@ class Classifier(object):
             }
             dic['description'] = 'Do not use comment lines to make the code invalid.'
         with open(os.path.join(self.outfile, 'code_warning.json'), 'w') as f:
-            json.dump({'problems': tuple_list}, f)
+            dump({'problems': tuple_list}, f)
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Check if pyfile contains commented-out code.')
+    parser = ArgumentParser(description='Check if pyfile contains commented-out code.')
 
     parser.add_argument(dest='root_path', metavar='root_path',
                         help='Check project root path')
