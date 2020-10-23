@@ -1,13 +1,14 @@
+# -*- coding:UTF-8 -*-
+"""
+@Description Transform json to csv.
+@Author Zhang YT
+@Date 2020/10/16 15:18
+"""
+
 import json
 import os
 import csv
 import re
-
-
-# def show(pattern, str_list):
-#     for string in str_list:
-#         if re.match(pattern, string['highlighted_element']):
-#             print(string['highlighted_element'])
 
 
 def write_csv(csv_file, json_dict):
@@ -28,9 +29,6 @@ def main():
     file = os.path.join(result_path, 'code_warning.json')
     with open(file, 'r') as f:
         json_dict = json.load(f)
-
-    # show(r"^\(.+\)$", json_dict['problems'])
-
     csv_file = os.path.join(result_path, "code_warning.csv")
     write_csv(csv_file, json_dict)
 

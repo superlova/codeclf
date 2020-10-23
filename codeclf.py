@@ -1,8 +1,14 @@
+# -*- coding:UTF-8 -*-
+"""
+@Description Find commented-out code in python scripts.
+@Author Zhang YT
+@Date 2020/10/23 14:38
+"""
+
 import tokenize
 import ast
 import os
 import json
-import re
 import argparse
 import numpy as np
 import tensorflow as tf
@@ -11,60 +17,74 @@ import time
 from functools import wraps
 import keyword
 
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # 忽略警告信息，不加这一句警告贼多
+
+
 def timethis(func):
+    """计时函数装饰器"""
     @wraps(func)
     def wrapper(*args, **kwargs):
         start = time.process_time()
         r = func(*args, **kwargs)
         end = time.process_time()
-        print('{}.{} : {}s'.format(func.__module__, func.__name__, end - start))
+        print('{} executing time: {}s'.format(func.__name__, end - start))
         return r
     return wrapper
 
 
-def createGenerator(data):
-    # tokenize.tokenize需要定义一个可迭代对象来获得token
-    def Generator():
+def create_generator(data):
+    """字符流生成器，在内部构建了一个闭包。
+    为了节约内存，避免一次性加载文件内容"""
+
+    def generator():
         for elem in data:
             try:
                 yield str.encode(elem)
             except:
                 yield str.encode('')
-    g = Generator()  # 生成器
-    def g_fn():
+
+    g = generator()  # 生成器
+
+    def next_element():
         return next(g)
-    return g_fn  # 迭代器
+
+    return next_element  # 迭代器
 
 
 class Classifier(object):
     def __init__(self,
-                 root_path,
-                 model_character_path,
-                 model_token_path,
-                 vocab_path,
-                 outfile,
+                 root_path,  # 指定扫描目录，或者文件
+                 model_character_path,  # （可选）训练好的character模型
+                 model_token_path,  # （可选）训练好的 token模型
+                 vocab_path,  # （可选）token模型使用的词表文件
+                 outfile,  # （可选）输出结果的目录
                  ):
+        self.root_path = root_path
         self.model_character_path = model_character_path
         self.model_token_path = model_token_path
-        self.root_path = root_path
         self.vocab_path = vocab_path
         self.outfile = outfile
-        self.load_model()
-        self.init_character_dict()
-        self.init_token_dict(self.vocab_path)
-        self.init_adjacent_dict("vocabs/vocab_keywords.txt")
-        self.pure_word_pat = re.compile(r'^[A-Za-z0-9_ ]+$')
+        self.load_model()  # 载入模型文件
+        self.init_character_dict()  # 初始化character模型所必需的词表
+        self.init_token_dict(self.vocab_path)  # 初始化token模型所必需的词表
+        self.init_adjacent_dict("vocabs/vocab_keywords.txt")  # 初始化python保留字表
+
+    def load_model(self):
+        self.lstm_model_character = tf.keras.models.load_model(self.model_character_path)
+        self.lstm_model_token = tf.keras.models.load_model(self.model_token_path)
 
     def init_character_dict(self):
-        # define the raw dataset
+        """初始化character模型所必需的词表"""
+        # 所有可见字符将其映射为唯一的整数
         alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890~!@#$%^&*()` ,./<>?;':\"[]{}=-+_\t\r\n|\\"
-        # create mapping of characters to integers (0-25) and the reverse
         self.char_to_int = dict((c, i + 2) for i, c in enumerate(alphabet))
         self.char_to_int['<pad>'] = 0
         self.char_to_int['<unk>'] = 1
         self.int_to_char = dict((i, c) for c, i in self.char_to_int.items())
 
     def init_token_dict(self, vocab_path):
+        """初始化token模型所必需的词表"""
+        # 从词表目录读取词表文件
         vocab = []
         with open(vocab_path, 'r', encoding='utf8') as f:
             for line in f:
@@ -80,32 +100,17 @@ class Classifier(object):
         self.token_2_id['<COM>'] = 7
         self.id_2_token = {v: k for k, v in self.token_2_id.items()}
 
-        self.switch = {  # Python中没有switch case语法，用这种形式代替
-            1: lambda tokens, tokval: tokens.append(
-                self.token_2_id.get(tokval)) if tokval in self.token_2_id.keys() else tokens.append(
-                self.token_2_id.get('<ID>')),
-            2: lambda tokens, tokval: tokens.append(self.token_2_id.get('<NUM>')),
-            3: lambda tokens, tokval: tokens.append(self.token_2_id.get('<STR>')),
-            53: lambda tokens, tokval: tokens.append(
-                self.token_2_id.get(tokval)) if tokval in self.token_2_id.keys() else tokens.append(
-                self.token_2_id.get('<PUN>')),
-            56: lambda tokens, tokval: tokens.append(self.token_2_id.get('<SPE>')),
-            57: lambda tokens, tokval: tokens.append(self.token_2_id.get('<COM>'))
-        }
-
     def init_adjacent_dict(self, vocab_path):
+        """初始化python保留字表"""
+        # 从词表目录读取词表文件
         self.id_vocab = []
         with open(vocab_path, 'r', encoding='utf8') as f:
             for line in f:
                 self.id_vocab.append(line.rstrip('\n'))
 
-    @timethis
-    def load_model(self):
-        self.lstm_model_character = tf.keras.models.load_model(self.model_character_path)
-        self.lstm_model_token = tf.keras.models.load_model(self.model_token_path)
-
-    def get_pyfile_path(self, root_path):
-        '''获取指定目录及其子目录下所有的py文件的目录'''
+    @staticmethod
+    def get_pyfile_path(root_path):
+        """获取指定目录及其子目录下所有的py文件的目录"""
         pyfiles = []
         root_path = os.path.abspath(root_path)
         for file_path, _, files in os.walk(root_path):
@@ -114,8 +119,9 @@ class Classifier(object):
                     pyfiles.append(os.path.join(file_path, file))
         return pyfiles
 
-    def read_txtfile(self, filename):
-        '''读取指定path对应的py文件的文本'''
+    @staticmethod
+    def read_txtfile(filename):
+        """读取指定path对应的py文件的文本"""
         sharps = []
         try:
             with open(filename, 'r', encoding='utf8') as f:
@@ -126,57 +132,71 @@ class Classifier(object):
         return sharps
 
     def gather_sharp_data(self, pyfiles):
-        '''读取指定path对应的py文件的文本，并提取其#开头的所有行'''
+        """读取指定path对应的py文件的文本，并提取其#开头的所有行"""
         sharp_data = []
         for pyfile in pyfiles:
             pycontent = self.read_txtfile(pyfile)
             for lineno, line in enumerate(pycontent):
                 if line.lstrip().startswith('#'):
                     dic = {
-                        'file': pyfile, 
-                        'line': lineno+1,
+                        'file': pyfile,
+                        'line': lineno + 1,
                         'highlighted_element': line.lstrip(' #').rstrip()
                     }
                     sharp_data.append(dic)
         return sharp_data
 
-    def fromTextToCharacterInputAndIndex(self, text, threshold=3, maxlen=70):
-        '''输入[line]，输出适合直接学习的[input]与对应的[index]。
-        目的是筛选那些长度过短的line，同时将text一次性转换的效率高一些。
-        加index是为了能够溯源，防止index被打乱'''
+    def from_text_to_character_input_and_index(self, text, threshold=3, maxlen=70):
+        """输入[line]，输出适合直接学习的[input]与对应的[index]。
+        threshold目的是筛选那些长度过短的line
+        maxlen是对齐[input]长度，方便模型输入
+        加index是为了能够溯源，防止index被打乱"""
+
         def check_dict(word):
             if word in self.char_to_int.keys():
                 return self.char_to_int.get(word)
             return self.char_to_int.get('<unk>')
-        Inputs = []
-        Index = []
+
+        inputs = []
+        indexes = []
         for index, row in enumerate(text):
             char_array = np.asarray(list(row), dtype=str)
             int_array = np.asarray(list(map(check_dict, char_array)))
             if len(int_array) >= threshold:
-                Inputs.append(int_array)
-                Index.append(index)
-        return sequence.pad_sequences(np.asarray(Inputs), padding='post', value=0, maxlen=maxlen), Index
+                inputs.append(int_array)
+                indexes.append(index)
+        return sequence.pad_sequences(np.asarray(inputs), padding='post', value=0, maxlen=maxlen), indexes
 
-    def fromTextToTokenID(self, text):
-        '''把一行代码转成token。
-        由于要使用python的tokenize模块，必须定义一个生成器。
-        定义switch是为了避免形成连续elif，但感觉更难懂了'''
-        data_generator = createGenerator(text)
+    def from_text_to_token_id(self, row):
+        """把一行代码转成token"""
+        data_generator = create_generator([row])
         tokens_iterator = tokenize.tokenize(data_generator)
         tokens = []
         try:
             for toknum, tokval, _, _, _ in tokens_iterator:
-                try:
-                    self.switch[toknum](tokens, tokval)
-                except KeyError:
-                    pass
+                if toknum == 1:
+                    tokens.append(
+                        self.token_2_id.get(tokval)) if tokval in self.token_2_id.keys() else tokens.append(
+                        self.token_2_id.get('<ID>'))
+                elif toknum == 2:
+                    tokens.append(self.token_2_id.get('<NUM>'))
+                elif toknum == 3:
+                    tokens.append(self.token_2_id.get('<STR>'))
+                elif toknum == 53:
+                    tokens.append(
+                        self.token_2_id.get(tokval)) if tokval in self.token_2_id.keys() else tokens.append(
+                        self.token_2_id.get('<PUN>'))
+                elif toknum == 56:
+                    tokens.append(self.token_2_id.get('<SPE>'))
+                elif toknum == 57:
+                    tokens.append(self.token_2_id.get('<COM>'))
         except tokenize.TokenError:
-            pass
+            pass  # 遍历到末尾会raise error
         return tokens
 
     def check_adjacent_id(self, row):
-        data_generator = createGenerator(row)
+        """检查有没有相邻的两个id"""
+        data_generator = create_generator([row])
         tokens_iterator = tokenize.tokenize(data_generator)
         res = []
         try:
@@ -184,55 +204,54 @@ class Classifier(object):
                 res.append((toknum, tokval))
         except tokenize.TokenError:
             pass
-
-        last = False
-        for toknum, tokval in res:
-            if toknum == 1 and tokval not in self.id_vocab:
-                if last:
-                    return True
-                else:
-                    last = True
-            else:
-                last = False
+        # 检查有没有相邻的两个id，有的话则不是code
+        for i in range(len(res) - 1):
+            if res[i][0] == 1 \
+                    and res[i + 1][0] == 1 \
+                    and res[i][1] not in self.id_vocab \
+                    and res[i + 1][1] not in self.id_vocab:
+                return True
         return False
 
-    def fromTextToTokenInputAndIndex(self, text, threshold=3, maxlen=30):
-        '''输入[line]，输出适合直接学习的[input]与对应的[index]。
-        目的是筛选那些长度过短的line，同时将text一次性转换的效率高一些。
-        加index是为了能够溯源，防止index被打乱'''
-        Inputs = []
-        Index = []
+    def from_text_to_token_input_and_index(self, text, threshold=3, maxlen=30):
+        """输入[line]，输出适合直接学习的[input]与对应的[index]。
+        threshold目的是筛选那些长度过短的line
+        maxlen是对齐[input]长度，方便模型输入
+        加index是为了能够溯源，防止index被打乱"""
+        inputs = []
+        indexes = []
         for index, row in enumerate(text):
             # 筛选那些相邻的id，2代表单词表外的id
-            if self.check_adjacent_id([row]):
+            if self.check_adjacent_id(row):
                 continue
-            int_array = np.asarray(self.fromTextToTokenID([row]))
+            int_array = np.asarray(self.from_text_to_token_id(row))
             if len(int_array) >= threshold:
-                Index.append(index)
-                Inputs.append(int_array)
-        return sequence.pad_sequences(np.asarray(Inputs), padding='post', value=0, maxlen=maxlen), Index
+                indexes.append(index)
+                inputs.append(int_array)
+        return sequence.pad_sequences(np.asarray(inputs), padding='post', value=0, maxlen=maxlen), indexes
 
-    def reduce_sharpset_by_rule(self, tuple_list):
-        '''输入全部[{file,line,highlighted_element}]，输出符合规则的[{file,line,highlighted_element}]'''
-        reduced_set = [] # 还需进一步判断的行
-        code_set = [] # 不需进一步判断的行
-
+    @staticmethod
+    def reduce_sharp_by_rule(tuple_list):
+        """输入全部[{file,line,highlighted_element}]，
+        输出符合规则的[{file,line,highlighted_element}]"""
+        reduced_set = []  # 还需进一步判断的行
+        code_set = []  # 不需进一步判断的行
         for item in tuple_list:
             try:
                 text_line = item['highlighted_element']
                 if len(text_line.strip('=\'\"')) <= 1 \
-                        or text_line == "coding=utf-8"\
-                        or text_line[0].isupper() and text_line.endswith('.')\
+                        or text_line == "coding=utf-8" \
+                        or text_line[0].isupper() and text_line.endswith('.') \
                         or not text_line.isascii():
                     # 出现这种特征，代表着绝不可能是代码
                     continue
-                elif text_line.startswith("from ") or text_line.startswith("import ")\
-                        or text_line.startswith("self.") or " = " in text_line\
-                        or text_line.startswith('(') and text_line.rstrip(',').endswith(')')\
+                elif text_line.startswith("from ") or text_line.startswith("import ") \
+                        or text_line.startswith("self.") or " = " in text_line \
+                        or text_line.startswith('(') and text_line.rstrip(',').endswith(')') \
                         or text_line.startswith('[') and text_line.rstrip(',').endswith(']'):
                     # 出现这种特征，是代码的可能性大，需要经过一遍编译
                     # 通过编译则为代码，不通过则录入reduced_set
-                    ast.parse(text_line) # 尝试编译
+                    ast.parse(text_line)  # 尝试编译
                     code_set.append(item)
                     continue
                 elif text_line.startswith("if __name__ =="):
@@ -241,66 +260,68 @@ class Classifier(object):
                     continue
                 reduced_set.append(item)
             except:
-                reduced_set.append(item) # 不通过说明from语句没通过编译
+                reduced_set.append(item)  # 不通过说明from语句没通过编译
         return reduced_set, code_set
 
     @timethis
     def classify(self):
-        '''输入全部[{file,line,highlighted_element}]，输出被怀疑为代码的[{file,line,highlighted_element}]'''
+        """输入全部[{file,line,highlighted_element}]，
+        输出被怀疑为代码的[{file,line,highlighted_element}]"""
         # 获得数据
         if self.root_path.endswith('.py'):
             path = os.path.abspath(self.root_path)
             tuple_list = self.gather_sharp_data([path])
         else:
             tuple_list = self.gather_sharp_data(self.get_pyfile_path(self.root_path))
-        print("all testing comment number: ", len(tuple_list))
+        print(f"All testing comment number from {self.root_path}: {len(tuple_list)}.")
 
         # 依照确定性算法，将注释分为需要进一步判断的tuple_list和code_list
-        tuple_list, code_list = self.reduce_sharpset_by_rule(tuple_list)
+        tuple_list, code_list = self.reduce_sharp_by_rule(tuple_list)
         # 防止模型输入为空
         if len(tuple_list) <= 0:
-            print("1:no commented-out code")
+            print("1: No commented-out code.")
             # 保存结果
             self.dump_res(code_list)
             return  # 没发现值得进一步分析的行，提前结束
-        
+        else:
+            print("Commented code number find by pure grammar checker: ", len(code_list))
+
         # 然后切分成token再输入token模型
         sharps = [x.get('highlighted_element') for x in tuple_list]
-        sharp_inputs, sharp_inputs_index = self.fromTextToTokenInputAndIndex(sharps)
+        sharp_inputs, sharp_inputs_index = self.from_text_to_token_input_and_index(sharps)
         predict_label = (self.lstm_model_token.predict(sharp_inputs) > 0.5).astype("int32")
         code_item_token = []
         mask = [np.squeeze(predict_label) == 0]  # code
         for lineno in np.asarray(sharp_inputs_index)[tuple(mask)]:
             code_item_token.append(tuple_list[lineno])
-        print("warning code_item_token: ", len(code_item_token))
+        print("Commented code number find by `token` model: ", len(code_item_token))
 
         # 最后使用character模型逐字符判断
         sharps = [x.get('highlighted_element') for x in tuple_list]
-        sharp_inputs, sharp_inputs_index = self.fromTextToCharacterInputAndIndex(sharps)
+        sharp_inputs, sharp_inputs_index = self.from_text_to_character_input_and_index(sharps)
         predict_label = (self.lstm_model_character.predict(sharp_inputs) > 0.5).astype("int32")
         code_item_char = []
         mask = [np.squeeze(predict_label) == 0]  # code
         for lineno in np.asarray(sharp_inputs_index)[tuple(mask)]:
             code_item_char.append(tuple_list[lineno])
-        print("warning code_item_char: ", len(code_item_char))
+        print("Commented code number find by `character` model: ", len(code_item_char))
 
         code_list.extend(code_item_char)
         # 两个集合取并集
         for item in code_item_token:
             for item2 in code_item_char:
                 if item.get('highlighted_element') == item2.get('highlighted_element') \
-                        and item.get('line') == item2.get('line')\
+                        and item.get('line') == item2.get('line') \
                         and item.get('file') == item2.get('file'):
                     break
             else:
                 code_list.append(item)
-
-        print("warning comment number: ", len(code_list))
+        print("Total number of commented code: .", len(code_list))
         # 保存结果
         self.dump_res(code_list)
 
     def dump_res(self, tuple_list):
-        '''添加一些其他信息，然后整合成code_warning.json'''
+        """添加一些其他信息，然后整合成code_warning.json"""
         for dic in tuple_list:
             dic['offset'] = 0
             dic['length'] = 0
@@ -350,11 +371,11 @@ def main():
 
     args = parser.parse_args()
 
-    args = {'root_path':args.root_path,
-            'model_character_path':args.model_character_path,
-            'model_token_path':args.model_token_path,
-            'vocab_path':args.vocab_path,
-            'outfile':args.outfile,
+    args = {'root_path': args.root_path,
+            'model_character_path': args.model_character_path,
+            'model_token_path': args.model_token_path,
+            'vocab_path': args.vocab_path,
+            'outfile': args.outfile,
             }
 
     classifier = Classifier(**args)
