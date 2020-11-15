@@ -240,7 +240,7 @@ class Classifier(object):
                 if len(text_line.strip('=\'\"')) <= 1 \
                         or text_line == "coding=utf-8" \
                         or text_line[0].isupper() and text_line.endswith('.') \
-                        or not text_line.isascii(): # TODO 在这里判断太早，应该在
+                        or not text_line.isascii(): # TODO 在这里判断太早，应该
                     # 出现这种特征，代表着绝不可能是代码
                     continue
                 elif text_line.startswith("from ") or text_line.startswith("import ") \

@@ -1,3 +1,9 @@
 /results/*
-/testfile/*
-.gitignore
+/testfile
+/venv
+/logs
+/datasets
+/.idea
+/.ipynb_checkpoints
+/checkpoint
+#.gitignore
