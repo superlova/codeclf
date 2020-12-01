@@ -20,7 +20,7 @@ import logging
 
 class DataProcessor(object):
     def __init__(self):
-        pattern_sharp = r'( *#+(.*)(?:\n|$))'  # 匹配一行纯注释，不是代码后面的那种
+        pattern_sharp = r'(^ *#+(.*)(?:\n|$))'  # 匹配一行纯注释，不是代码后面的那种
         pattern_3doublequote = r'("""((?:.|\r?\n)*?)""")'
         pattern_3singlequote = r"('''((?:.|\r?\n)*?)''')"
 
@@ -29,10 +29,10 @@ class DataProcessor(object):
         self.pattern_sharp = re.compile(pattern_sharp)
 
     def extract_sharp_docstring(self, code):
-        '''
+        """
         extract sharp docstring from code (corpus)
         :return: list of docstring
-        '''
+        """
         sharp_docstring = []
         docstring_iter = re.finditer(self.pattern_sharp, code)
         for match in docstring_iter:
@@ -44,10 +44,10 @@ class DataProcessor(object):
 
     @timeout(10, os.strerror(errno.ETIMEDOUT))
     def parse_code(self, string):
-        '''
+        """
         delete docstring and white line from code corpus
         :return: a code corpus
-        '''
+        """
         string = re.sub(self.patterns, "", string)
         string = string.replace("    ", "\n")
         string = string.replace("\t", "\n")
