@@ -43,7 +43,7 @@ def timethis(func):
         start = process_time()
         r = func(*args, **kwargs)
         end = process_time()
-        print('{} executing time: {}s'.format(func.__name__, end - start))
+        logging.info('{} executing time: {}s'.format(func.__name__, end - start))
         return r
     return wrapper
 
