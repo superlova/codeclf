@@ -9,4 +9,4 @@
 /.ipynb_checkpoints
 
 # too big
-/models/lstm_character_50000.hdf5
+/models/*.hdf5
