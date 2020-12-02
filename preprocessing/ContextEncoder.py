@@ -20,17 +20,22 @@ def split_code(code):
     return code_lines
 
 
-def DFA(text):
-    index_codes = []
-    index_docs = []
-    state = 0
-    text = text.split('\n')
-    for line in text:
-        if line.startswith('#'):
-            state = 1
-        elif line.startswith('"""'):
-            state = 3
-    return index_codes, index_docs
+class DFA:
+    def CODE(self):
+        pass
+
+    def DOCSTRING_DOUBLE(self):
+        pass
+
+    def DOCSTRING_SINGLE(self):
+        pass
+
+    def DOCSTRING_ONE(self):
+        pass
+
+    def CODE_SLASH(self):
+        pass
+
 
 
 
