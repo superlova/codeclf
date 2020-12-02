@@ -1,3 +1,12 @@
 /results/*
 /testfile/*
-.gitignore
+/logs/*
+/datasets/*
+/checkpoint/*
+
+/.idea
+/venv
+/.ipynb_checkpoints
+
+# too big
+/models/lstm_character_50000.hdf5
