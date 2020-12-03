@@ -11,6 +11,9 @@ import logging
 
 
 class FSM(object):
+    """
+    通过一遍遍历，对py文件内代码进行标注，获取该文件内代码行codes和docstring行docs的行号。
+    """
     def __init__(self, text):
         self.text = text
         self.codes = []

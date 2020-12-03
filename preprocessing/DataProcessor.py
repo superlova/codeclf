@@ -1,7 +1,7 @@
 '''
 Author: Zyt
 Date: 2020-12-02 19:21:21
-LastEditTime: 2020-12-02 21:57:44
+LastEditTime: 2020-12-03 09:09:43
 LastEditors: Please set LastEditors
 Description: In User Settings Edit
 FilePath: \codeclf\preprocessing\DataProcessor.py
@@ -41,15 +41,15 @@ class DataProcessor(object):
             self.codes.extend((text[index] for index in fsm.codes))
             self.docs.extend((text[index] for index in fsm.docs))
 
-    def context_divide(self, file_texts):
+    def context_divide_naive(self, file_texts):
         for corpus in file_texts:
             text = corpus.split('\n')
+            text = [line for line in text if len(line) > 0] # 只留下非空行
 
             fsm = FSM(text)
             fsm.scan()
-            if len(text) == 0:
-                continue
-            elif len(text) == 1:
+
+            if len(text) == 1:
                 for index in fsm.codes:
                     self.codes.append({"before": "", "text": text[0], "after": ""})
                 for index in fsm.docs:
@@ -82,16 +82,67 @@ class DataProcessor(object):
                 else:
                     self.docs.append({"before":text[index-1], "text":text[index], "after":text[index+1]})
 
+    def context_divide(self, file_texts, before=1, after=1):
+        for corpus in file_texts:
+            # 逐个扫描每个py文件，标记每行的类别
+            text = corpus.split('\n')
+            text = [line for line in text if len(line) > 0] # 只留下非空行
+            length = len(text)
+            fsm = FSM(text)
+            fsm.scan()
+
+            for index in fsm.codes:
+                # 每一行代码都查找它的上下文：
+                context_before = []
+                context_after = []
+                if index < before: # index不够大导致before不够
+                    for i in range(index):
+                        context_before.append(text[i])
+                else:
+                    for i in range(index - before, index):
+                        context_before.append(text[i])
+                if length - index - 1 < after: # index过大导致after不够
+                    for i in range(index + 1, length):
+                        context_after.append(text[i])
+                else:
+                    for i in range(index + 1, index + after + 1):
+                        context_after.append(text[i])
+
+                item = {'before': context_before, 'text': text[index], 'after': context_after, 'label': 0}
+
+                self.codes.append(item)
+
+            for index in fsm.docs:
+                # 每一行代码都查找它的上下文：
+                context_before = []
+                context_after = []
+                if index < before:  # index不够大导致before不够
+                    for i in range(index):
+                        context_before.append(text[i])
+                else:
+                    for i in range(index - before, index):
+                        context_before.append(text[i])
+                if length - index - 1 < after:  # index过大导致after不够
+                    for i in range(index + 1, length):
+                        context_after.append(text[i])
+                else:
+                    for i in range(index + 1, index + after + 1):
+                        context_after.append(text[i])
+
+                item = {'before': context_before, 'text': text[index], 'after': context_after, 'label': 1}
+
+                self.docs.append(item)
+
 
 @timethis
-def process(corpus_path, output_path):
+def process(corpus_path, output_path, before=1, after=1):
     processor = DataProcessor()
     data = processor.load_data(corpus_path)
-    processor.context_divide(data)
+    processor.context_divide(data, before=before, after=after)
     df = pd.DataFrame(data=processor.codes, columns=['before', 'text', 'after', 'label'])
-    df['label'] = 0
+    # df['label'] = 0
     df2 = pd.DataFrame(data=processor.docs, columns=['before', 'text', 'after', 'label'])
-    df2['label'] = 1
+    # df2['label'] = 1
 
     print(f"df_code:{len(df)}, df_docs:{len(df2)}")
     df = pd.concat([df, df2], ignore_index=True)
@@ -110,10 +161,33 @@ def test_df_head():
     fsm.pretty_print()
 
 
+def test_process_naive():
+    df = pd.read_pickle('../datasets/df_valid_corpus.tar.bz2')
+    file_text = df['code'][3010]
+
+    fsm = FSM(file_text.split('\n'))
+    fsm.scan()
+    fsm.pretty_print()
+    print("----------------------------")
+
+    processor = DataProcessor()
+    processor.context_divide([file_text])
+    print(processor.codes)
+    print("----------------------------")
+
+    processor = DataProcessor()
+    processor.context_divide_naive([file_text])
+    print(processor.codes)
+    
+
 def test_process():
     process('../datasets/df_train_corpus.tar.bz2', '../datasets/df_train_context.tar.bz2')
-    # process('../datasets/df_test_corpus.tar.bz2', '../datasets/df_test_context.tar.bz2')
-    # process('../datasets/df_valid_corpus.tar.bz2', '../datasets/df_valid_context.tar.bz2')
+    process('../datasets/df_test_corpus.tar.bz2', '../datasets/df_test_context.tar.bz2')
+    process('../datasets/df_valid_corpus.tar.bz2', '../datasets/df_valid_context.tar.bz2')
+
+    process('../datasets/df_train_corpus.tar.bz2', '../datasets/df_train_context_2.tar.bz2', before=2, after=2)
+    process('../datasets/df_test_corpus.tar.bz2', '../datasets/df_test_context_2.tar.bz2', before=2, after=2)
+    process('../datasets/df_valid_corpus.tar.bz2', '../datasets/df_valid_context_2.tar.bz2', before=2, after=2)
 
 
 def main():
@@ -122,6 +196,7 @@ def main():
         level=logging.INFO
     )
     test_process()
+    # test_process_naive()
 
 
 if __name__ == '__main__':
