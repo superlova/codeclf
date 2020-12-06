@@ -7,7 +7,13 @@
 # @Software: PyCharm
 
 import re
+import pandas as pd
 import logging
+import sys, os
+
+
+project_dir = 'C:/Users/zyt/Documents/GitHub Repositories/codeclf_gui/codeclf'
+sys.path.append(os.path.join(project_dir, 'utils'))
 
 
 class FSM(object):
@@ -158,10 +164,21 @@ def test_DFA():
     print(fsm.docs)
 
 
+def test_df_head():
+    df = pd.read_pickle('../datasets/df_valid_corpus.tar.bz2')
+    file_text = df['code'][3010]
+    print(file_text)
+
+    fsm = FSM(file_text.split('\n'))
+    fsm.scan()
+    fsm.pretty_print()
+
+
 def main():
     logging.basicConfig(
         level=logging.INFO
     )
+    # test_df_head()
     test_DFA()
 
 
