@@ -1,7 +1,7 @@
 '''
 Author: your name
 Date: 2020-12-06 21:32:15
-LastEditTime: 2020-12-06 21:36:34
+LastEditTime: 2020-12-06 22:34:21
 LastEditors: superlova
 Description: In User Settings Edit
 FilePath: \codeclf\preprocessing\CorpusEncoder.py
@@ -24,22 +24,23 @@ from Utils import create_generator
 
 class CorpusEncoder(object):
     def __init__(self):
-        self.tokens = {}
+        pass
 
     def get_context_only_id(self, corpus):
         data_generator = create_generator([corpus])
         tokens_iterator = tokenize.tokenize(data_generator)
+        tokens = {}
         try:
             for toknum, tokval, _, _, _ in tokens_iterator:
                 if toknum == 1 and not keyword.iskeyword(tokval):
-                    if tokval in self.tokens.keys():
-                        self.tokens[tokval] += 1
+                    if tokval in tokens.keys():
+                        tokens[tokval] += 1
                     else:
-                        self.tokens[tokval] = 1
+                        tokens[tokval] = 1
         except tokenize.TokenError:
             print("EOF")
             # pass  # 遍历到末尾会raise error
-        return self.tokens
+        return tokens
 
 
 def test_get_context_only_id():

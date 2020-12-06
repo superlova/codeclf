@@ -16,27 +16,28 @@ from astpretty import pprint
 
 class ASTEncoder(object):
     def __init__(self):
-        self.inorder = []
-        self.preorder = []
+        pass
 
-    def preorder_helper(self, root):
+    def preorder_helper(self, root, preorder):
         if root is None:
             return
-        self.preorder.append(str(type(root).__name__))
+        preorder.append(str(type(root).__name__))
         nodes = ast.iter_child_nodes(root)
         for node in nodes:
-            self.preorder_helper(node)
+            self.preorder_helper(node, preorder)
 
     def get_ast_preorder(self, corpus):
+        preorder = []
         ast_tree = ast.parse(corpus)
-        self.preorder_helper(ast_tree)
-        return self.preorder
+        self.preorder_helper(ast_tree, preorder)
+        return preorder
 
     def get_ast_inorder(self, corpus):
+        inorder = []
         ast_tree = ast.parse(corpus)
         for node in ast.walk(ast_tree):
-            self.inorder.append(type(node).__name__)
-        return self.inorder
+            inorder.append(type(node).__name__)
+        return inorder
 
     def visit_graphviz(self, node, nodes, pindex, graph):
         """
@@ -118,9 +119,9 @@ def test_order():
 def main():
     # test_ASTEncoder()
     # test_find_file()
-    test_visualize()
+    # test_visualize()
     # test_print_tree()
-    # test_order()
+    test_order()
 
 
 if __name__ == '__main__':
