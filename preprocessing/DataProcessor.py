@@ -15,11 +15,9 @@ import ast
 project_dir = 'C:/Users/zyt/Documents/GitHub Repositories/codeclf_gui/codeclf'
 sys.path.append(os.path.join(project_dir, 'utils'))
 
-from Utils import timethis
-
 from ContextEncoder import ContextEncoder
 from CorpusEncoder import CorpusEncoder
-from ASTEncoder import ASTEncoder
+# from ASTEncoder import ASTEncoder
 
 
 class DataProcessor(object):
