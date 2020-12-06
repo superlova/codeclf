@@ -41,46 +41,46 @@ class DataProcessor(object):
             self.codes.extend((text[index] for index in fsm.codes))
             self.docs.extend((text[index] for index in fsm.docs))
 
-    def context_divide_naive(self, file_texts):
-        for corpus in file_texts:
-            text = corpus.split('\n')
-            text = [line for line in text if len(line) > 0] # 只留下非空行
-
-            fsm = FSM(text)
-            fsm.scan()
-
-            if len(text) == 1:
-                for index in fsm.codes:
-                    self.codes.append({"before": "", "text": text[0], "after": ""})
-                for index in fsm.docs:
-                    self.docs.append({"before": "", "text": text[0], "after": ""})
-            elif len(text) == 2:
-                for index in fsm.codes:
-                    if index == 0:
-                        self.codes.append({"before": "", "text": text[0], "after": text[1]})
-                    elif index == len(text) - 1:
-                        self.codes.append({"before": text[-2], "text": text[-1], "after": ""})
-                for index in fsm.docs:
-                    if index == 0:
-                        self.docs.append({"before": "", "text": text[0], "after": text[1]})
-                    elif index == len(text) - 1:
-                        self.docs.append({"before": text[-2], "text": text[-1], "after": ""})
-
-            for index in fsm.codes:
-                if index == 0:
-                    self.codes.append({"before":"", "text":text[0], "after":text[1]})
-                elif index == len(text) - 1:
-                    self.codes.append({"before":text[-2], "text":text[-1], "after":""})
-                else:
-                    self.codes.append({"before":text[index-1], "text":text[index], "after":text[index+1]})
-
-            for index in fsm.docs:
-                if index == 0:
-                    self.docs.append({"before":"", "text":text[0], "after":text[1]})
-                elif index == len(text) - 1:
-                    self.docs.append({"before":text[-2], "text":text[-1], "after":""})
-                else:
-                    self.docs.append({"before":text[index-1], "text":text[index], "after":text[index+1]})
+    # def context_divide_naive(self, file_texts):
+    #     for corpus in file_texts:
+    #         text = corpus.split('\n')
+    #         text = [line for line in text if len(line) > 0] # 只留下非空行
+    #
+    #         fsm = FSM(text)
+    #         fsm.scan()
+    #
+    #         if len(text) == 1:
+    #             for index in fsm.codes:
+    #                 self.codes.append({"before": "", "text": text[0], "after": ""})
+    #             for index in fsm.docs:
+    #                 self.docs.append({"before": "", "text": text[0], "after": ""})
+    #         elif len(text) == 2:
+    #             for index in fsm.codes:
+    #                 if index == 0:
+    #                     self.codes.append({"before": "", "text": text[0], "after": text[1]})
+    #                 elif index == len(text) - 1:
+    #                     self.codes.append({"before": text[-2], "text": text[-1], "after": ""})
+    #             for index in fsm.docs:
+    #                 if index == 0:
+    #                     self.docs.append({"before": "", "text": text[0], "after": text[1]})
+    #                 elif index == len(text) - 1:
+    #                     self.docs.append({"before": text[-2], "text": text[-1], "after": ""})
+    #
+    #         for index in fsm.codes:
+    #             if index == 0:
+    #                 self.codes.append({"before":"", "text":text[0], "after":text[1]})
+    #             elif index == len(text) - 1:
+    #                 self.codes.append({"before":text[-2], "text":text[-1], "after":""})
+    #             else:
+    #                 self.codes.append({"before":text[index-1], "text":text[index], "after":text[index+1]})
+    #
+    #         for index in fsm.docs:
+    #             if index == 0:
+    #                 self.docs.append({"before":"", "text":text[0], "after":text[1]})
+    #             elif index == len(text) - 1:
+    #                 self.docs.append({"before":text[-2], "text":text[-1], "after":""})
+    #             else:
+    #                 self.docs.append({"before":text[index-1], "text":text[index], "after":text[index+1]})
 
     def context_divide(self, file_texts, before=1, after=1):
         for corpus in file_texts:
@@ -161,23 +161,23 @@ def test_df_head():
     fsm.pretty_print()
 
 
-def test_process_naive():
-    df = pd.read_pickle('../datasets/df_valid_corpus.tar.bz2')
-    file_text = df['code'][3010]
-
-    fsm = FSM(file_text.split('\n'))
-    fsm.scan()
-    fsm.pretty_print()
-    print("----------------------------")
-
-    processor = DataProcessor()
-    processor.context_divide([file_text])
-    print(processor.codes)
-    print("----------------------------")
-
-    processor = DataProcessor()
-    processor.context_divide_naive([file_text])
-    print(processor.codes)
+# def test_process_naive():
+#     df = pd.read_pickle('../datasets/df_valid_corpus.tar.bz2')
+#     file_text = df['code'][3010]
+#
+#     fsm = FSM(file_text.split('\n'))
+#     fsm.scan()
+#     fsm.pretty_print()
+#     print("----------------------------")
+#
+#     processor = DataProcessor()
+#     processor.context_divide([file_text])
+#     print(processor.codes)
+#     print("----------------------------")
+#
+#     processor = DataProcessor()
+#     processor.context_divide_naive([file_text])
+#     print(processor.codes)
     
 
 def test_process():
