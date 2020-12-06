@@ -1,8 +1,8 @@
 '''
-Author: your name
+Author: superlova
 Date: 2020-12-06 14:40:08
-LastEditTime: 2020-12-06 20:55:53
-LastEditors: Please set LastEditors
+LastEditTime: 2020-12-06 21:42:23
+LastEditors: superlova
 Description: In User Settings Edit
 FilePath: \codeclf\preprocessing\ASTEncoder.py
 '''
