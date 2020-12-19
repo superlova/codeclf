@@ -12,11 +12,9 @@ import tensorflow as tf
 
 project_dir = 'C:/Users/zyt/Documents/GitHub Repositories/codeclf_gui/codeclf'
 sys.path.append(project_dir)
-
 from utils.CodeTokenizer import CodeTokenizer, CodeSplitTokenizer
 from utils.CodeTokenizer import ContextCodeTokenizer, ContextCodeSplitTokenizer
 from utils.Utils import timethis
-
 from preprocessing.DataProcessor import DataProcessor
 
 import logging
@@ -163,19 +161,26 @@ class ClfSplitModel(ClfModel):
 
 
 class ContextModel(BasicModel):
-    def __init__(self):
+    def __init__(self, before=1, after=1):
         self.EMBEDDING_DIM = 200
         self.BATCH_SIZE = 32
         self.EPOCHS = 15
+        self.CONTEXT_BEFORE = before
+        self.CONTEXT_AFTER = after
+        self.INPUT_LENGTH = 30 * (self.CONTEXT_BEFORE + self.CONTEXT_AFTER + 1)
 
     def load_vocab(self, vocab_path):
-        self.tokenizer = CodeTokenizer(vocab_path)
+        self.tokenizer = ContextCodeTokenizer(vocab_path)
         self.VOCAB_SIZE = len(self.tokenizer.vocab)
 
     @timethis
     def load_datasets(self, train_path, valid_path, limit_dataset=-1):
+        """输入corpus_path
+        """
         df_train = pd.read_pickle(train_path)
         df_valid = pd.read_pickle(valid_path)
+        df_train = df_train['code']
+        df_valid = df_valid['code']
 
         if limit_dataset != -1:
             print(f'limiting training dataset: {limit_dataset}')
@@ -184,55 +189,51 @@ class ContextModel(BasicModel):
 
         self.TRAIN_SIZE = len(df_train)
         self.VALID_SIZE = len(df_valid)
-        self.INPUT_LENGTH = 30
+
+        def feature_to_id_bta(features, label):
+            """Context特有的方法，将dataset中的上下文结合到一起并生成ids"""
+            return self.tokenizer.from_feature_to_token_id_bta(features[0].decode("utf-8"),
+                                                    features[1].decode("utf-8"),
+                                                    features[2].decode("utf-8"), maxlen=self.INPUT_LENGTH), label
+
+        def tf_feature_to_id_bta(features, label):
+            """Context特有的方法，将feature_to_id_bta包装为tf.py_function"""
+            label_shape = label.shape
+            [features, label] = tf.numpy_function(feature_to_id_bta,
+                                        inp=[features, label],
+                                        Tout=[tf.int32, tf.int64])
+            features.set_shape((self.INPUT_LENGTH,))
+            label.set_shape(label_shape)
+            return features, label
 
         dp = DataProcessor()
-        ds_train = dp.process_context_tfdata_divide(df_train['code'], before=1, after=1)
-        ds_valid = dp.process_context_tfdata_divide(df_valid['code'], before=1, after=1)
-        ds_train = ds_train.map(self.tokenizer.from_row_to_token_id)
+        ds_train = dp.process_context_tfdata_merge(df_train, self.CONTEXT_BEFORE, self.CONTEXT_AFTER)
+        ds_valid = dp.process_context_tfdata_merge(df_valid, self.CONTEXT_BEFORE, self.CONTEXT_AFTER)
+
+        ds_train = ds_train.map(tf_feature_to_id_bta, num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
         train_code_ds = (ds_train
             .filter(lambda features, label: label == 0)
-            .shuffle(1000000)
+            .shuffle(100000)
             .repeat())
         train_docs_ds = (ds_train
             .filter(lambda features, label: label == 1)
-            .shuffle(1000000)
+            .shuffle(100000)
             .repeat())
         self.train_ds = tf.data.experimental.sample_from_datasets(
             [train_code_ds, train_docs_ds], 
             weights=[0.5, 0.5])
-        self.train_ds = self.train_ds.batch(self.BATCH_SIZE).prefetch(2)
-
-        self.val_ds = ds_valid.map()
-
-        self.val_ds = self.val_ds.batch(self.BATCH_SIZE).prefetch(2)
-
-
-
-        def make_ds(lines, labels):
-            ds = tf.data.Dataset.from_tensor_slices((lines, labels))
-            ds = ds.shuffle(1000000).repeat()
-            return ds
-
-        train_code = self.tokenizer.from_lines_to_token_input(df_train[df_train['label'] == 0]['data'])
-        train_docs = self.tokenizer.from_lines_to_token_input(df_train[df_train['label'] == 1]['data'])
-        train_code_ds = make_ds(train_code, np.zeros((len(train_code))))
-        train_docs_ds = make_ds(train_docs, np.ones((len(train_docs))))
-        self.train_ds = tf.data.experimental.sample_from_datasets([train_code_ds, train_docs_ds], weights=[0.5, 0.5])
-        self.train_ds = self.train_ds.batch(self.BATCH_SIZE).prefetch(2)
-
-        val_data, val_label = self.tokenizer.from_df_to_token_input(df_valid)
-        logging.info(f'len(val_data): {len(val_data)}, {len(val_label)}')
-        self.val_ds = make_ds(val_data, val_label)
-        self.val_ds = self.val_ds.batch(self.BATCH_SIZE).prefetch(2)
+        self.train_ds = self.train_ds.batch(self.BATCH_SIZE).prefetch(tf.data.experimental.AUTOTUNE)
+        
+        self.val_ds = ds_valid.map(tf_feature_to_id_bta, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+        self.val_ds = self.val_ds.batch(self.BATCH_SIZE).prefetch(tf.data.experimental.AUTOTUNE)
 
     def construct_model(self):
         self.model = tf.keras.Sequential([
             tf.keras.layers.Embedding(input_dim=self.VOCAB_SIZE, input_length=self.INPUT_LENGTH,
                                       output_dim=self.EMBEDDING_DIM),
-            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(50, return_sequences=True, dropout=0.5)),
-            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(50, return_sequences=True, dropout=0.5)),
+            # tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(50, return_sequences=True, dropout=0.5)),
+            # tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(50, return_sequences=True, dropout=0.5)),
             tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(50, dropout=0.5)),
             tf.keras.layers.Dense(20, activation='relu'),
             tf.keras.layers.Dense(1, activation='sigmoid')
@@ -285,21 +286,35 @@ class ContextModel(BasicModel):
 
     @timethis
     def evaluate(self, test_path):
+        """corpus_path"""
         if not self.model:
             print('Model not exist. Please training first.')
             return
         if not self.test_ds:
             df_test = pd.read_pickle(test_path)
+            df_test = df_test['code']
             self.TEST_SIZE = len(df_test)
 
-            def make_ds(lines, labels):
-                ds = tf.data.Dataset.from_tensor_slices((lines, labels))
-                ds = ds.shuffle(1000000).repeat()
-                return ds
+            def feature_to_id_bta(features, label):
+                """Context特有的方法，将dataset中的上下文结合到一起并生成ids"""
+                return self.tokenizer.from_feature_to_token_id_bta(features[0].decode("utf-8"),
+                                                        features[1].decode("utf-8"),
+                                                        features[2].decode("utf-8"), maxlen=self.INPUT_LENGTH), label
 
-            test_data, test_label = self.tokenizer.from_df_to_token_input(df_test)
-            self.test_ds = make_ds(test_data, test_label)
-            self.test_ds = self.test_ds.batch(self.BATCH_SIZE).prefetch(2)
+            def tf_feature_to_id_bta(features, label):
+                """Context特有的方法，将feature_to_id_bta包装为tf.py_function"""
+                label_shape = label.shape
+                [features, label] = tf.numpy_function(feature_to_id_bta,
+                                            inp=[features, label],
+                                            Tout=[tf.int32, tf.int64])
+                features.set_shape((self.INPUT_LENGTH,))
+                label.set_shape(label_shape)
+                return features, label
+
+            dp = DataProcessor()
+            ds_test = dp.process_context_tfdata_merge(df_test, self.CONTEXT_BEFORE, self.CONTEXT_AFTER)
+            self.test_ds = ds_test.map(tf_feature_to_id_bta, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+            self.test_ds = self.test_ds.batch(self.BATCH_SIZE).prefetch(tf.data.experimental.AUTOTUNE)
 
         test_steps = tf.math.ceil(self.TEST_SIZE / self.BATCH_SIZE).numpy()
         loss, acc = self.model.evaluate(self.test_ds, steps=test_steps)
@@ -307,11 +322,11 @@ class ContextModel(BasicModel):
 
 
 class ContextSpiltModel(ContextModel):
-    def __init__(self):
-        super(ClfSplitModel, self).__init__()
+    def __init__(self, before=1, after=1):
+        super(ContextModel, self).__init__(before, after)
 
     def load_vocab(self, vocab_path):
-        self.tokenizer = CodeSplitTokenizer(vocab_path)
+        self.tokenizer = ContextCodeSplitTokenizer(vocab_path)
         self.VOCAB_SIZE = len(self.tokenizer.vocab)
 
 
@@ -410,12 +425,39 @@ def test_tokenize_map():
         print(label)
 
 
+def test_context_model():
+    trainer = ContextModel(before=1, after=1)
+    trainer.load_vocab('../vocabs/nosplit_keyword_vocab50000.txt')
+
+    logging.info('loading training data...')
+    trainer.load_datasets(train_path='../datasets/df_train_corpus.tar.bz2',
+                          valid_path='../datasets/df_valid_corpus.tar.bz2',
+                          limit_dataset=20000)
+
+    logging.info('datasets ready!')
+    trainer.construct_model()
+
+    logging.info('start training...')
+    trainer.train_model(checkpoint_save_path='../checkpoint/lstm_model_token_50000_context_try_1')
+
+    logging.info('saving model...')
+    trainer.save_model('../models/lstm_model_token_50000_context_try_1.hdf5')
+
+    trainer.plot_history()
+
+    logging.info('evaluating model...')
+    trainer.evaluate(test_path='../datasets/df_test_corpus.tar.bz2')
+
 
 def main():
+    logging.basicConfig(
+        level=logging.INFO
+    )
     # test_clf_split_model()
     # test_context_tokenizer()
     # test_count_token_avg()
-    test_tokenize_map()
+    # test_tokenize_map()
+    test_context_model()
 
 
 if __name__ == '__main__':
