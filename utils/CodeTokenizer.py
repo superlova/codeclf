@@ -47,11 +47,11 @@ class BaseCodeTokenizer(object):
 
     @staticmethod
     def load_vocab(vocab_file):
-        vocab = []
+        vocab = set()
         with open(vocab_file, 'r', encoding='utf8') as f:
             for line in f:
-                vocab.append(line.rstrip('\n'))
-        return vocab
+                vocab.add(line.rstrip('\n'))
+        return list(vocab)
 
     def tokenize(self, row):
         tokens, _ = self.tokenize_with_type(row)
@@ -246,7 +246,7 @@ class SimpleCodeTokenizer(CodeTokenizer):
         self.vocab['<NUM>'] = 6  # number, toknum==2
         self.vocab['<STR>'] = 7  # string, toknum==3
         self.vocab['<SPE>'] = 8  # special character, toknum==59
-        self.vocab['<COM>'] = 9 # comment, toknum==60
+        self.vocab['<COM>'] = 9  # comment, toknum==60
 
     def from_row_to_token_id(self, row):
         """把一行代码转成token"""
@@ -546,13 +546,32 @@ def test_code_split_tokenizer():
     print(tokenizer.from_row_to_token_id("hello \nworld ' \n def # def # def"))
 
 def test_context_code_tokenizer():
-    cct = ContextCodeTokenizer('../vocabs/split_keyword_vocab50000.txt')
+    cct = ContextCodeTokenizer('../vocabs/nosplit_keyword_vocab50000.txt')
+    print(cct.vocab)
     before = 'tokenizer = SimpleSplitCodeTokenizer(\'../vocabs/split_keyword_vocab50000.txt\')'
     text = 'print(tokenizer.from_row_to_token_id("hello \nworld \' \n def # def # def"))'
-    after = 'def test_context_code_tokenizer():'
+    after = 'def test_context_code_tokenizer(): nlayers'
     bta = cct.from_feature_to_token_id_bta(before, text, after)
     print(bta)
 
+
+def test_tokenizer_vocab_size():
+    cct = ContextCodeTokenizer('../vocabs/nosplit_keyword_vocab50000.txt')
+    last_v = 0
+    for v in sorted(cct.vocab.values()):
+        if v > last_v + 1:
+            print(last_v + 1)
+        last_v = v
+
+    print(max(cct.vocab.values()))
+
+
+def test_load_vocab():
+    vocab = set()
+    with open('../vocabs/nosplit_keyword_vocab50000.txt', 'r', encoding='utf8') as f:
+        for line in f:
+            vocab.add(line.rstrip('\n'))
+    print(len(list(vocab)))
 
 
 def main():
@@ -563,6 +582,8 @@ def main():
     # test_eof()
     # test_code_split_tokenizer()
     test_context_code_tokenizer()
+    test_tokenizer_vocab_size()
+    # test_load_vocab()
     
 
 
