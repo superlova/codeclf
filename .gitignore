@@ -2,6 +2,7 @@
 /testfile/*
 /logs/*
 # /datasets/*
+/datasets/python.zip
 /checkpoint/*
 
 /.idea
