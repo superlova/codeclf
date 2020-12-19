@@ -3,14 +3,18 @@
 # @Time    : 2020/11/10 20:12
 # @Function:
 
-import os
+import os, sys
 
 import numpy as np
 import pandas as pd
 
 import tensorflow as tf
 
+project_dir = 'C:/Users/zyt/Documents/GitHub Repositories/codeclf_gui/codeclf'
+sys.path.append(project_dir)
+
 from utils.CodeTokenizer import CodeTokenizer, CodeSplitTokenizer
+from utils.CodeTokenizer import ContextCodeTokenizer, ContextCodeSplitTokenizer
 from utils.Utils import timethis
 
 from preprocessing.DataProcessor import DataProcessor
@@ -340,9 +344,78 @@ def test_clf_split_model():
     logging.info('evaluating model...')
     trainer.evaluate(test_path='../datasets/df_test_line.tar.bz2')
 
+def test_context_tokenizer():
+    corpus_path = '../datasets/df_test_corpus.tar.bz2'
+    df_data = pd.read_pickle(corpus_path)
+    data = df_data['code']
+
+    ccst = ContextCodeSplitTokenizer(os.path.join(project_dir, 'vocabs/split_simple_vocab50000.txt'))
+    dp = DataProcessor()
+
+    ds = dp.process_context_tfdata_merge(data)
+    for features, label in ds.take(10):
+        # print(features, len(features), label)
+        print(ccst.from_feature_to_token_id_bta(features[0].numpy().decode("utf-8"),
+                                                features[1].numpy().decode("utf-8"),
+                                                features[2].numpy().decode("utf-8")))
+
+
+def test_count_token_avg():
+    corpus_path = '../datasets/df_test_corpus.tar.bz2'
+    df_data = pd.read_pickle(corpus_path)
+    data = df_data['code']
+
+    ccst = ContextCodeSplitTokenizer(os.path.join(project_dir, 'vocabs/split_simple_vocab50000.txt'))
+    dp = DataProcessor()
+
+    ds = dp.process_context_tfdata_merge(data)
+
+    token_lengths = []
+    for features, label in ds:
+        # print(features, len(features), label)
+        for f in features:
+            tokens, _ = ccst.tokenize_with_type(f.numpy().decode("utf-8"))
+            token_lengths.append(len(tokens))
+
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    # fig, ax = plt.subplots()
+    ax = sns.distplot(token_lengths)
+    plt.show()
+
+def test_tokenize_map():
+    def feature_to_id_bta(features, label):
+        return ccst.from_feature_to_token_id_bta(features[0].numpy().decode("utf-8"),
+                                                features[1].numpy().decode("utf-8"),
+                                                features[2].numpy().decode("utf-8")), label
+
+    corpus_path = '../datasets/df_test_corpus.tar.bz2'
+    df_data = pd.read_pickle(corpus_path)
+    data = df_data['code']
+
+    ccst = ContextCodeSplitTokenizer(os.path.join(project_dir, 'vocabs/split_simple_vocab50000.txt'))
+    dp = DataProcessor()
+
+    ds = dp.process_context_tfdata_merge(data)
+    # ds_features = (features[0] for features in ds)
+    # print(ds_features)
+
+    ds = ds.map(lambda features, label:
+                     tf.py_function(feature_to_id_bta,
+                                    inp=[features, label],
+                                    Tout=[tf.string, tf.int32]))
+
+    for feature, label in ds:
+        print(feature)
+        print(label)
+
+
 
 def main():
-    test_clf_split_model()
+    # test_clf_split_model()
+    # test_context_tokenizer()
+    # test_count_token_avg()
+    test_tokenize_map()
 
 
 if __name__ == '__main__':

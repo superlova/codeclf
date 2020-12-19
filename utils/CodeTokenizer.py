@@ -3,14 +3,14 @@
 # @Time    : 2020/11/9 9:05
 # @Function:
 
-'''
+"""
 Author: Zyt
 Date: 2020-11-09 09:05:21
 LastEditTime: 2020-12-17 23:57:08
 LastEditors: superlova
 Description: 将文本转化为id，包含许多不同任务的tokenizer
-FilePath: \codeclf\utils\CodeTokenizer.py
-'''
+FilePath: /codeclf/utils/CodeTokenizer.py
+"""
 
 import tokenize
 
@@ -550,7 +550,9 @@ def test_context_code_tokenizer():
     before = 'tokenizer = SimpleSplitCodeTokenizer(\'../vocabs/split_keyword_vocab50000.txt\')'
     text = 'print(tokenizer.from_row_to_token_id("hello \nworld \' \n def # def # def"))'
     after = 'def test_context_code_tokenizer():'
-    cct.from_feature_to_token_id_bta(before, text, after)
+    bta = cct.from_feature_to_token_id_bta(before, text, after)
+    print(bta)
+
 
 
 def main():

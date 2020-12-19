@@ -234,7 +234,11 @@ def test_context_merge():
     df = pd.concat([df_codes, df_docs], ignore_index=True)
 
     # df = pd.DataFrame(data=context_data, columns=['before', 'text', 'after', 'label'])
-    print(df.head())
+    print(df_data['code'][0])
+    for index, row in df.iterrows():
+        print("before", row[0])
+        print("text", row[1])
+        print("after", row[2])
 
 
 def main():

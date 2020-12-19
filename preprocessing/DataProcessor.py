@@ -107,7 +107,7 @@ def test_tfdata():
     data = df_data['code']
 
     dp = DataProcessor()
-    dataset = dp.process_context_tfdata_divide(data, before=2, after=2)
+    dataset = dp.process_context_tfdata_divide(data, before=1, after=1)
     for f, t in dataset.take(5):
         print(f, t)
 
