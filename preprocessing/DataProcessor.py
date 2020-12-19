@@ -1,7 +1,7 @@
 '''
 Author: Zyt
 Date: 2020-12-02 19:21:21
-LastEditTime: 2020-12-17 23:55:29
+LastEditTime: 2020-12-19 16:30:45
 LastEditors: superlova
 Description: 从原始数据（corpus）构建带标签数据集（tf.data）。数据来源包含docstring和代码。初始标签由FSM决定。
 FilePath: \codeclf\preprocessing\DataProcessor.py
@@ -71,7 +71,7 @@ class DataProcessor(object):
         return dataset
 
     def process_context_tfdata_merge(self, file_texts, before=1, after=1):
-
+        """将df['code']分行、获得上下文、转化为dataset并打乱"""
         codes, docs = self.context_encoder.context_merge_all(file_texts, before, after)
         df_codes = pd.DataFrame(data=codes, columns=['before', 'text', 'after', 'label'])
         df_docs = pd.DataFrame(data=docs, columns=['before', 'text', 'after', 'label'])
@@ -81,6 +81,7 @@ class DataProcessor(object):
 
         label = df.pop('label')
         dataset = tf.data.Dataset.from_tensor_slices((df.values, label.values))
+        dataset = dataset.shuffle(100000).repeat()
         return dataset
 
 
