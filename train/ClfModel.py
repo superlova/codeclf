@@ -120,8 +120,8 @@ class ClfModel(BasicModel):
             print('No training history. Please training first.')
             return
         import matplotlib.pyplot as plt
-        plt.plot(self.history.history['acc'])
-        plt.plot(self.history.history['val_acc'])
+        plt.plot(self.history.history['accuracy'])
+        plt.plot(self.history.history['val_accuracy'])
         plt.title('Model accuracy')
         plt.ylabel('Accuracy')
         plt.xlabel('Epoch')
@@ -276,8 +276,8 @@ class ContextModel(BasicModel):
             print('No training history. Please training first.')
             return
         import matplotlib.pyplot as plt
-        plt.plot(self.history.history['acc'])
-        plt.plot(self.history.history['val_acc'])
+        plt.plot(self.history.history['accuracy'])
+        plt.plot(self.history.history['val_accuracy'])
         plt.title('Model accuracy')
         plt.ylabel('Accuracy')
         plt.xlabel('Epoch')
