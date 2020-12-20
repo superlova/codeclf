@@ -15,9 +15,9 @@ from collections import Counter
 import pandas as pd
 import numpy as np
 
-import os, sys
-project_dir = 'C:/Users/zyt/Documents/GitHub Repositories/codeclf_gui/codeclf'
-sys.path.append(project_dir)
+# import os, sys
+# project_dir = 'C:/Users/zyt/Documents/GitHub Repositories/codeclf_gui/codeclf'
+# sys.path.append(project_dir)
 
 from utils.Utils import split_token
 from utils.Utils import create_generator, timethis

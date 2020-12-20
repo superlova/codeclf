@@ -17,9 +17,9 @@ import tokenize
 import numpy as np
 import pandas as pd
 
-import sys
-project_dir = 'C:/Users/zyt/Documents/GitHub Repositories/codeclf_gui/codeclf'
-sys.path.append(project_dir)
+# import sys
+# project_dir = 'C:/Users/zyt/Documents/GitHub Repositories/codeclf_gui/codeclf'
+# sys.path.append(project_dir)
 
 from utils.Utils import create_generator
 from utils.Utils import pad_sequences
@@ -266,7 +266,8 @@ class SimpleCodeTokenizer(CodeTokenizer):
                 elif toknum == tokenize.STRING:
                     ids.append(self.vocab.get('<STR>'))
                 elif toknum == tokenize.NEWLINE:
-                    ids.append(self.vocab.get('<SEP>'))  # \n
+                    pass
+                    # ids.append(self.vocab.get('<SEP>'))  # \n
                 elif toknum == tokenize.OP:
                     ids.append(
                         self.vocab.get(tokval)) if tokval in self.vocab.keys() else ids.append(
@@ -383,7 +384,8 @@ class SimpleSplitCodeTokenizer(SimpleCodeTokenizer):
                 elif toknum == tokenize.STRING:
                     ids.append(self.vocab.get('<STR>'))
                 elif toknum == tokenize.NEWLINE:
-                    ids.append(self.vocab.get('<SEP>'))  # \n
+                    pass
+                    # ids.append(self.vocab.get('<SEP>'))  # \n
                 elif toknum == tokenize.OP:
                     ids.append(
                         self.vocab.get(tokval)) if tokval in self.vocab.keys() else ids.append(
@@ -408,7 +410,7 @@ class ContextCodeTokenizer(SimpleCodeTokenizer):
     def __init__(self, vocab_file):
         super().__init__(vocab_file)
 
-    def from_feature_to_token_id_bta(self, before, text, after, maxlen=60):
+    def from_feature_to_token_id_bta(self, before, text, after, maxlen):
         """
         遵循before+text+after的编码顺序
         :param feature:
@@ -417,10 +419,12 @@ class ContextCodeTokenizer(SimpleCodeTokenizer):
         before_id = self.from_row_to_token_id(before)
         text_id = self.from_row_to_token_id(text)
         after_id = self.from_row_to_token_id(after)
-        sum_id = np.concatenate([before_id, text_id, after_id])
+        cls = [self.vocab.get('<CLS>')]
+        sep = [self.vocab.get('<SEP>')]
+        sum_id = np.concatenate([cls, before_id, sep, text_id, sep, after_id, sep])
         return pad_sequences(np.asarray([sum_id]), padding='post', value=0, maxlen=maxlen)[0]
 
-    def from_feature_to_token_id_bat(self, before, text, after, maxlen=60):
+    def from_feature_to_token_id_bat(self, before, text, after, maxlen):
         """
         遵循before+after+text的编码顺序
         :param feature:
@@ -429,10 +433,13 @@ class ContextCodeTokenizer(SimpleCodeTokenizer):
         before_id = self.from_row_to_token_id(before)
         text_id = self.from_row_to_token_id(text)
         after_id = self.from_row_to_token_id(after)
-        sum_id = np.concatenate([before_id, after_id, text_id])
+        cls = [self.vocab.get('<CLS>')]
+        sep = [self.vocab.get('<SEP>')]
+        sum_id = np.concatenate([cls, before_id, sep, after_id, sep, text_id, sep])
+        # sum_id = np.concatenate([before_id, after_id, text_id])
         return pad_sequences(np.asarray([sum_id]), padding='post', value=0, maxlen=maxlen)[0]
 
-    def from_feature_to_token_id_tba(self, before, text, after):
+    def from_feature_to_token_id_tba(self, before, text, after, maxlen):
         """
         遵循text+before+after的编码顺序
         :param feature:
@@ -441,7 +448,9 @@ class ContextCodeTokenizer(SimpleCodeTokenizer):
         before_id = self.from_row_to_token_id(before)
         text_id = self.from_row_to_token_id(text)
         after_id = self.from_row_to_token_id(after)
-        sum_id = np.concatenate([text_id, before_id, after_id])
+        cls = [self.vocab.get('<CLS>')]
+        sep = [self.vocab.get('<SEP>')]
+        sum_id = np.concatenate([cls, text_id, sep, before_id, sep, after_id, sep])
         return pad_sequences(np.asarray([sum_id]), padding='post', value=0, maxlen=maxlen)[0]
 
 
@@ -489,7 +498,8 @@ class ContextCodeSplitTokenizer(ContextCodeTokenizer):
                 elif toknum == tokenize.STRING:
                     ids.append(self.vocab.get('<STR>'))
                 elif toknum == tokenize.NEWLINE:
-                    ids.append(self.vocab.get('<SEP>'))  # \n
+                    pass
+                    # ids.append(self.vocab.get('<SEP>'))  # \n
                 elif toknum == tokenize.OP:
                     ids.append(
                         self.vocab.get(tokval)) if tokval in self.vocab.keys() else ids.append(
@@ -547,7 +557,7 @@ def test_code_split_tokenizer():
 
 def test_context_code_tokenizer():
     cct = ContextCodeTokenizer('../vocabs/nosplit_keyword_vocab50000.txt')
-    print(cct.vocab)
+    # print(cct.vocab)
     before = 'tokenizer = SimpleSplitCodeTokenizer(\'../vocabs/split_keyword_vocab50000.txt\')'
     text = 'print(tokenizer.from_row_to_token_id("hello \nworld \' \n def # def # def"))'
     after = 'def test_context_code_tokenizer(): nlayers'
@@ -582,7 +592,7 @@ def main():
     # test_eof()
     # test_code_split_tokenizer()
     test_context_code_tokenizer()
-    test_tokenizer_vocab_size()
+    # test_tokenizer_vocab_size()
     # test_load_vocab()
     
 

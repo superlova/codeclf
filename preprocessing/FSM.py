@@ -9,7 +9,7 @@
 '''
 Date: 2020-12-02 14:45:04
 LastEditors: superlova
-LastEditTime: 2020-12-18 00:01:46
+LastEditTime: 2020-12-20 09:04:35
 Description: 遍历原始数据，决定原始数据的标签。原来是代码->code，原来是docstring/comment->dostring
 FilePath: \codeclf\preprocessing\FSM.py
 '''
@@ -20,8 +20,8 @@ import logging
 import sys, os
 
 
-project_dir = 'C:/Users/zyt/Documents/GitHub Repositories/codeclf_gui/codeclf'
-sys.path.append(os.path.join(project_dir, 'utils'))
+# project_dir = 'C:/Users/zyt/Documents/GitHub Repositories/codeclf_gui/codeclf'
+# sys.path.append(os.path.join(project_dir, 'utils'))
 
 
 class FSM(object):

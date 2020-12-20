@@ -1,7 +1,7 @@
 '''
 Author: your name
 Date: 2020-12-02 11:10:04
-LastEditTime: 2020-12-06 21:57:07
+LastEditTime: 2020-12-20 09:03:58
 LastEditors: superlova
 Description: In User Settings Edit
 FilePath: \codeclf\preprocessing\ContextEncoder.py
@@ -16,8 +16,8 @@ import logging
 import sys, os
 
 
-project_dir = 'C:/Users/zyt/Documents/GitHub Repositories/codeclf_gui/codeclf'
-sys.path.append(project_dir)
+# project_dir = 'C:/Users/zyt/Documents/GitHub Repositories/codeclf_gui/codeclf'
+# sys.path.append(project_dir)
 
 from preprocessing.FSM import FSM
 from utils.Utils import timethis

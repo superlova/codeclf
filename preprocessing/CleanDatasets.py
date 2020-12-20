@@ -12,6 +12,10 @@ import numpy as np
 import pandas as pd
 from sklearn.utils import shuffle
 
+# import sys
+# project_dir = 'C:/Users/zyt/Documents/GitHub Repositories/codeclf_gui/codeclf'
+# sys.path.append(project_dir)
+
 from utils.Utils import timeout, timethis
 from utils.Utils import progress
 

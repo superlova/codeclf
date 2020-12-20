@@ -1,7 +1,7 @@
 '''
 Author: your name
 Date: 2020-12-06 21:32:15
-LastEditTime: 2020-12-06 22:34:21
+LastEditTime: 2020-12-20 09:04:10
 LastEditors: superlova
 Description: In User Settings Edit
 FilePath: \codeclf\preprocessing\CorpusEncoder.py
@@ -17,9 +17,9 @@ import tokenize
 import keyword
 import pandas as pd
 
-project_dir = 'C:/Users/zyt/Documents/GitHub Repositories/codeclf_gui/codeclf'
-sys.path.append(os.path.join(project_dir, 'utils'))
-from Utils import create_generator
+# project_dir = 'C:/Users/zyt/Documents/GitHub Repositories/codeclf_gui/codeclf'
+# sys.path.append(project_dir)
+from utils.Utils import create_generator
 
 
 class CorpusEncoder(object):

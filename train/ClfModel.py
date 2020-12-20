@@ -10,8 +10,8 @@ import pandas as pd
 
 import tensorflow as tf
 
-project_dir = 'C:/Users/zyt/Documents/GitHub Repositories/codeclf_gui/codeclf'
-sys.path.append(project_dir)
+# project_dir = 'C:/Users/zyt/Documents/GitHub Repositories/codeclf_gui/codeclf'
+# sys.path.append(project_dir)
 from utils.CodeTokenizer import CodeTokenizer, CodeSplitTokenizer
 from utils.CodeTokenizer import ContextCodeTokenizer, ContextCodeSplitTokenizer
 from utils.Utils import timethis
@@ -32,10 +32,11 @@ class BasicModel(object):
 
 
 class ClfModel(BasicModel):
-    def __init__(self):
-        self.EMBEDDING_DIM = 200
-        self.BATCH_SIZE = 32
-        self.EPOCHS = 15
+    def __init__(self, embedding_dim=200, batch_size=32, epochs=15, hidden_dim=50):
+        self.EMBEDDING_DIM = embedding_dim
+        self.BATCH_SIZE = batch_size
+        self.EPOCHS = epochs
+        self.HIDDEN_DIM = hidden_dim
 
     def load_vocab(self, vocab_path):
         self.tokenizer = CodeTokenizer(vocab_path)
@@ -76,9 +77,9 @@ class ClfModel(BasicModel):
         self.model = tf.keras.Sequential([
             tf.keras.layers.Embedding(input_dim=self.VOCAB_SIZE, input_length=self.INPUT_LENGTH,
                                       output_dim=self.EMBEDDING_DIM),
-            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(50, return_sequences=True, dropout=0.5)),
-            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(50, return_sequences=True, dropout=0.5)),
-            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(50, dropout=0.5)),
+            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(self.HIDDEN_DIM, return_sequences=True, dropout=0.5)),
+            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(self.HIDDEN_DIM, return_sequences=True, dropout=0.5)),
+            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(self.HIDDEN_DIM, dropout=0.5)),
             tf.keras.layers.Dense(20, activation='relu'),
             tf.keras.layers.Dense(1, activation='sigmoid')
         ])
@@ -161,13 +162,14 @@ class ClfSplitModel(ClfModel):
 
 
 class ContextModel(BasicModel):
-    def __init__(self, before=1, after=1):
-        self.EMBEDDING_DIM = 200
-        self.BATCH_SIZE = 32
-        self.EPOCHS = 15
+    def __init__(self, before=1, after=1, embedding_dim=200, batch_size=1024, epochs=40, hidden_dim=50):
+        self.EMBEDDING_DIM = embedding_dim
+        self.BATCH_SIZE = batch_size
+        self.EPOCHS = epochs
         self.CONTEXT_BEFORE = before
         self.CONTEXT_AFTER = after
         self.INPUT_LENGTH = 30 * (self.CONTEXT_BEFORE + self.CONTEXT_AFTER + 1)
+        self.HIDDEN_DIM = hidden_dim
 
     def load_vocab(self, vocab_path):
         self.tokenizer = ContextCodeTokenizer(vocab_path)
@@ -232,9 +234,9 @@ class ContextModel(BasicModel):
         self.model = tf.keras.Sequential([
             tf.keras.layers.Embedding(input_dim=self.VOCAB_SIZE, input_length=self.INPUT_LENGTH,
                                       output_dim=self.EMBEDDING_DIM),
-            # tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(50, return_sequences=True, dropout=0.5)),
-            # tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(50, return_sequences=True, dropout=0.5)),
-            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(50, dropout=0.5)),
+            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(self.HIDDEN_DIM, return_sequences=True, dropout=0.5)),
+            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(self.HIDDEN_DIM, return_sequences=True, dropout=0.5)),
+            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(self.HIDDEN_DIM, dropout=0.5)),
             tf.keras.layers.Dense(20, activation='relu'),
             tf.keras.layers.Dense(1, activation='sigmoid')
         ])
@@ -244,7 +246,7 @@ class ContextModel(BasicModel):
         self.model.summary()
 
     @timethis
-    def train_model(self, checkpoint_save_path, patience=3):
+    def train_model(self, checkpoint_save_path, patience=5):
         def get_checkpoint_callback(checkpoint_path):
             cp_callbacks = tf.keras.callbacks.ModelCheckpoint(
                 filepath=checkpoint_path,
@@ -252,7 +254,7 @@ class ContextModel(BasicModel):
                 save_best_only=True)
             return cp_callbacks
 
-        def get_earlystop_callback(patience=3):
+        def get_earlystop_callback(patience=5):
             es_callbacks = tf.keras.callbacks.EarlyStopping(
                 monitor='val_loss', patience=patience
             )
@@ -322,8 +324,8 @@ class ContextModel(BasicModel):
 
 
 class ContextSpiltModel(ContextModel):
-    def __init__(self, before=1, after=1):
-        super(ContextModel, self).__init__(before, after)
+    def __init__(self, before=1, after=1, embedding_dim=200, batch_size=1024, epochs=40, hidden_dim=50):
+        super(ContextModel, self).__init__(before, after, embedding_dim, batch_size, epochs, hidden_dim)
 
     def load_vocab(self, vocab_path):
         self.tokenizer = ContextCodeSplitTokenizer(vocab_path)

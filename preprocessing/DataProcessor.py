@@ -1,7 +1,7 @@
 '''
 Author: Zyt
 Date: 2020-12-02 19:21:21
-LastEditTime: 2020-12-19 16:30:45
+LastEditTime: 2020-12-20 09:04:26
 LastEditors: superlova
 Description: 从原始数据（corpus）构建带标签数据集（tf.data）。数据来源包含docstring和代码。初始标签由FSM决定。
 FilePath: \codeclf\preprocessing\DataProcessor.py
@@ -13,8 +13,8 @@ import logging
 import sys, os
 import ast
 
-project_dir = 'C:/Users/zyt/Documents/GitHub Repositories/codeclf_gui/codeclf'
-sys.path.append(project_dir)
+# project_dir = 'C:/Users/zyt/Documents/GitHub Repositories/codeclf_gui/codeclf'
+# sys.path.append(project_dir)
 
 from preprocessing.ContextEncoder import ContextEncoder
 from preprocessing.CorpusEncoder import CorpusEncoder
