@@ -56,6 +56,7 @@ class Classifier(object):
                  model_token_path,  # （可选）训练好的 token模型
                  vocab_path,  # （可选）token模型使用的词表文件
                  outfile,  # （可选）输出结果的目录
+                 keyword="vocabs/vocab_keywords.txt"
                  ):
         self.root_path = root_path
         self.model_character_path = model_character_path
@@ -65,7 +66,7 @@ class Classifier(object):
         self.load_model()  # 载入模型文件
         self.init_character_dict()  # 初始化character模型所必需的词表
         self.init_token_dict(self.vocab_path)  # 初始化token模型所必需的词表
-        self.init_adjacent_dict("vocabs/vocab_keywords.txt")  # 初始化python保留字表
+        self.init_adjacent_dict(keyword)  # 初始化python保留字表
 
     def load_model(self):
         self.lstm_model_character = load_model(self.model_character_path)
@@ -144,6 +145,25 @@ class Classifier(object):
                     sharp_data.append(dic)
         return sharp_data
 
+    def from_text_to_character_input(self, text, threshold=3, maxlen=70):
+        """输入[line]，输出适合直接学习的[input]与对应的[index]。
+        threshold目的是筛选那些长度过短的line
+        maxlen是对齐[input]长度，方便模型输入
+        加index是为了能够溯源，防止index被打乱"""
+
+        def check_dict(word):
+            if word in self.char_to_int.keys():
+                return self.char_to_int.get(word)
+            return self.char_to_int.get('<unk>')
+
+        inputs = []
+        for row in text:
+            char_array = asarray(list(row), dtype=str)
+            int_array = asarray(list(map(check_dict, char_array)))
+            if len(int_array) >= threshold:
+                inputs.append(int_array)
+        return sequence.pad_sequences(asarray(inputs), padding='post', value=0, maxlen=maxlen)
+
     def from_text_to_character_input_and_index(self, text, threshold=3, maxlen=70):
         """输入[line]，输出适合直接学习的[input]与对应的[index]。
         threshold目的是筛选那些长度过短的line
@@ -210,6 +230,21 @@ class Classifier(object):
                     and res[i + 1][1] not in self.id_vocab:
                 return True
         return False
+
+    def from_text_to_token_input(self, text, threshold=3, maxlen=30):
+        """输入[line]，输出适合直接学习的[input]与对应的[index]。
+        threshold目的是筛选那些长度过短的line
+        maxlen是对齐[input]长度，方便模型输入
+        加index是为了能够溯源，防止index被打乱"""
+        inputs = []
+        for row in text:
+            # 筛选那些相邻的id，2代表单词表外的id
+            if self.check_adjacent_id(row):
+                continue
+            int_array = asarray(self.from_text_to_token_id(row))
+            if len(int_array) >= threshold:
+                inputs.append(int_array)
+        return sequence.pad_sequences(asarray(inputs), padding='post', value=0, maxlen=maxlen)
 
     def from_text_to_token_input_and_index(self, text, threshold=3, maxlen=30):
         """输入[line]，输出适合直接学习的[input]与对应的[index]。
@@ -318,6 +353,51 @@ class Classifier(object):
         # 保存结果
         self.dump_res(code_list)
 
+    def contains_code(self, lines):
+        waiting_line_index = []
+        code_line_index = set()
+        for index, text_line in enumerate(lines):
+            try:
+                if len(text_line.strip('=\'\"')) <= 1 \
+                        or text_line == "coding=utf-8" \
+                        or text_line[0].isupper() and text_line.endswith('.') \
+                        or not text_line.isascii():  # TODO 在这里判断太早，应该在
+                    # 出现这种特征，代表着绝不可能是代码
+                    continue
+                elif text_line.startswith("from ") or text_line.startswith("import ") \
+                        or text_line.startswith("self.") or " = " in text_line \
+                        or text_line.startswith('(') and text_line.rstrip(',').endswith(')') \
+                        or text_line.startswith('[') and text_line.rstrip(',').endswith(']'):
+                    # 出现这种特征，是代码的可能性大，需要经过一遍编译
+                    # 通过编译则为代码，不通过则录入reduced_set
+                    parse(text_line)  # 尝试编译
+                    # compile(text_line, '<string>', 'exec')
+                    code_line_index.add(index)
+                elif text_line.startswith("if __name__ =="):
+                    # 出现这种特征，肯定是代码
+                    code_line_index.add(index)
+                waiting_line_index.append(index)
+            except:
+                waiting_line_index.append(index)  # 不通过说明from语句没通过编译
+        # 然后切分成token再输入token模型
+        sharp_inputs = self.from_text_to_token_input([lines[x] for x in waiting_line_index])
+        predict_labels = (self.lstm_model_token.predict(sharp_inputs) > 0.5).astype("int32")
+        mask = [squeeze(predict_labels) == 0][0]  # code
+        for index, label in enumerate(mask):
+            if label: # code
+                code_line_index.add(waiting_line_index[index])
+        # 最后使用character模型逐字符判断
+        sharp_inputs = self.from_text_to_character_input([lines[x] for x in waiting_line_index])
+        predict_label = (self.lstm_model_character.predict(sharp_inputs) > 0.5).astype("int32")
+        mask = [squeeze(predict_label) == 0][0]  # code
+        for index, label in enumerate(mask):
+            if label:  # code
+                code_line_index.add(waiting_line_index[index])
+        result = [False] * len(lines)
+        for index in code_line_index:
+            result[index] = True
+        return result
+
     def dump_res(self, tuple_list):
         """添加一些其他信息，然后整合成code_warning.json"""
         for dic in tuple_list:
@@ -378,7 +458,6 @@ def main():
 
     classifier = Classifier(**args)
     classifier.classify()
-
 
 if __name__ == '__main__':
     main()
