@@ -6,8 +6,8 @@ FilePath: \codeclf\other_methods\eradicate.py
 '''
 """Removes commented-out Python code."""
 
-from __future__ import print_function
-from __future__ import unicode_literals
+# from __future__ import print_function
+# from __future__ import unicode_literals
 
 import difflib
 import io
@@ -53,6 +53,51 @@ class Eradicator(object):
         line = line.lstrip()
         if not line.startswith('#'):
             return False
+
+        line = line.lstrip(self.WHITESPACE_HASH).strip()
+
+        # Ignore non-comment related hashes. For example, "# Issue #999".
+        if self.HASH_NUMBER.search(line):
+            return False
+
+        # Ignore whitelisted comments
+        if self.WHITELIST_REGEX.search(line):
+            return False
+
+        if self.CODING_COMMENT_REGEX.match(line):
+            return False
+
+        # Check that this is possibly code.
+        for symbol in self.CODE_INDICATORS:
+            if symbol in line:
+                break
+        else:
+            return False
+
+        if self.multiline_case(line, aggressive=aggressive):
+            return True
+
+        for symbol in self.CODE_KEYWORDS_AGGR if aggressive else self.CODE_KEYWORDS:
+            if re.match(r'^\s*' + symbol + r'\s*:\s*$', line):
+                return True
+
+        line = self.PRINT_RETURN_REGEX.sub('', line)
+
+        if self.PARTIAL_DICTIONARY_REGEX.match(line):
+            return True
+
+        try:
+            compile(line, '<string>', 'exec')
+        except (SyntaxError, TypeError, UnicodeDecodeError):
+            return False
+        else:
+            return True
+
+    def comment_contains_code_no_sharp(self, line, aggressive=True):
+        """Return True comment contains code."""
+        line = line.lstrip(' #')
+        # if not line.startswith('#'):
+        #     return False
 
         line = line.lstrip(self.WHITESPACE_HASH).strip()
 
@@ -158,6 +203,18 @@ class Eradicator(object):
                 yield line
             previous_line = line
 
+    def identify_commented_out_code(self, source, aggressive=True):
+        """Yield commented out code."""
+        marked_lines = list(self.commented_out_code_line_numbers(source,
+                                                                 aggressive))
+        sio = io.StringIO(source)
+        previous_line = ''
+        for line_number, line in enumerate(sio.readlines(), start=1):
+            if (line_number in marked_lines and not
+                    previous_line.rstrip().endswith('\\')):
+                yield line
+            previous_line = line
+
 
     def fix_file(self, filename, args, standard_out):
         """Run filter_commented_out_code() on file."""
@@ -215,6 +272,93 @@ class Eradicator(object):
             self.WHITELIST_REGEX = re.compile(
                 r'|'.join(new_whitelist),
                 flags=re.IGNORECASE)
+
+from utils.Utils import timethis
+import numpy as np
+import pandas as pd
+from codeclf import Classifier
+
+@timethis
+def erad(source):
+    eradicator = Eradicator()
+    eradicator_result = []
+    for line in source:
+        eradicator_result.append(eradicator.comment_contains_code_no_sharp(line))
+    eradicator_result = np.asarray(eradicator_result)
+    return eradicator_result
+
+@timethis
+def codeclf(source):
+    classifier = Classifier(
+        root_path='.',  # 指定扫描目录，或者文件
+        model_character_path=os.path.abspath('../models/mc.hdf5'),  # （可选）训练好的character模型
+        model_token_path=os.path.abspath('../models/mt_20000.hdf5'),  # （可选）训练好的 token模型
+        vocab_path=os.path.abspath('../vocabs/vocab_20000.txt'),  # （可选）token模型使用的词表文件
+        outfile=os.path.abspath('../results'),  # （可选）输出结果的目录
+        keyword=os.path.abspath('../vocabs/vocab_keywords.txt')
+    )
+    codeclf_results = np.asarray(classifier.contains_code(source.tolist()))
+    return codeclf_results
+
+def compare_result(predict_res, real_label):
+    tp = 0
+    fp = 0
+    tn = 0
+    fn = 0
+    for e_label, r_label in zip(predict_res, real_label):
+        if e_label and r_label:
+            tp += 1
+        elif e_label and not r_label:
+            fp += 1
+        elif not e_label and r_label:
+            fn += 1
+        else:
+            tn += 1
+    acc = (tp + tn) / (tp + tn + fp + fn)
+    precision = tp / (tp + fp)
+    recall = tp / (tp + fn)
+    f1 = (2 * precision * recall) / (precision + recall)
+    return acc, precision, recall, f1
+
+def test_erdicate(path):
+    df = pd.read_pickle(path)
+    source = df['data']
+    real_label = np.asarray(df['label'] == 0)
+    print("item num:", len(source))
+
+    eradicator_result = erad(source)
+    codeclf_results = codeclf(source)
+
+    acc_e, precision_e, recall_e, f1_e = compare_result(eradicator_result, real_label)
+    print("eradicate acc: ", acc_e)
+    print("eradicate precision: ", precision_e)
+    print("eradicate recall: ", recall_e)
+    print("eradicate f1: ", f1_e)
+
+    acc_c, precision_c, recall_c, f1_c = compare_result(codeclf_results, real_label)
+    print("codeclf acc: ", acc_c)
+    print("codeclf precision: ", precision_c)
+    print("codeclf recall: ", recall_c)
+    print("codeclf f1: ", f1_c)
+
+
+def test_classifier():
+    import numpy as np
+    import pandas as pd
+    df_test = pd.read_pickle('../datasets/df_test_line.tar.bz2')
+    source = df_test['data'][:100]
+
+    from codeclf import  Classifier
+    classifier = Classifier(
+        root_path='.',  # 指定扫描目录，或者文件
+        model_character_path=os.path.abspath('../models/mc.hdf5'),  # （可选）训练好的character模型
+        model_token_path=os.path.abspath('../models/mt_20000.hdf5'),  # （可选）训练好的 token模型
+        vocab_path=os.path.abspath('../vocabs/vocab_20000.txt'),  # （可选）token模型使用的词表文件
+        outfile=os.path.abspath('../results'),  # （可选）输出结果的目录
+        keyword=os.path.abspath('../vocabs/vocab_keywords.txt')
+    )
+    codeclf_results = classifier.contains_code(source.tolist())
+    print(codeclf_results)
 
 
 def main(argv, standard_out, standard_error):
@@ -275,3 +419,10 @@ def main(argv, standard_out, standard_error):
                 change_or_error = True
     if change_or_error and args.error:
         return 1
+
+
+if __name__ == '__main__':
+    test_erdicate('../datasets/df_train_line.tar.bz2')
+    test_erdicate('../datasets/df_test_line.tar.bz2')
+    test_erdicate('../datasets/df_valid_line.tar.bz2')
+    # test_classifier()
