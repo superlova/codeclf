@@ -558,10 +558,10 @@ def test_code_split_tokenizer():
 def test_context_code_tokenizer():
     cct = ContextCodeTokenizer('../vocabs/nosplit_keyword_vocab50000.txt')
     # print(cct.vocab)
-    before = 'tokenizer = SimpleSplitCodeTokenizer(\'../vocabs/split_keyword_vocab50000.txt\')'
-    text = 'print(tokenizer.from_row_to_token_id("hello \nworld \' \n def # def # def"))'
-    after = 'def test_context_code_tokenizer(): nlayers'
-    bta = cct.from_feature_to_token_id_bta(before, text, after)
+    before = '        return match1(url, r\'youtu\.be/([^?/]+)\') or \\'
+    text = '          match1(url, r\'youtube\.com/embed/([^/?]+)\') or \\'
+    after = '          match1(url, r\'youtube\.com/v/([^/?]+)\') or \\'
+    bta = cct.from_feature_to_token_id_bta(before, text, after, maxlen=90)
     print(bta)
 
 
@@ -584,16 +584,29 @@ def test_load_vocab():
     print(len(list(vocab)))
 
 
+def test_raw_coding():
+    cct = ContextCodeTokenizer('../vocabs/nosplit_keyword_vocab50000.txt')
+    # print(cct.vocab)
+    before = 'Print Hello world on console'
+    text = '    print("Hello world")'
+    after = '>>> Hello world'
+    print(cct.from_row_to_token_id(before))
+    print(cct.from_row_to_token_id(text))
+    print(cct.from_row_to_token_id(after))
+    print(cct.from_feature_to_token_id_bta(before, text, after, maxlen=30))
+
+
 def main():
     logging.basicConfig(
-        level=logging.DEBUG
+        level=logging.INFO
     )
     # test_short_line_in_dataset()
     # test_eof()
     # test_code_split_tokenizer()
-    test_context_code_tokenizer()
+    # test_context_code_tokenizer()
     # test_tokenizer_vocab_size()
     # test_load_vocab()
+    test_raw_coding()
     
 
 

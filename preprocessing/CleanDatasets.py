@@ -7,7 +7,6 @@
 import re
 import os
 import errno
-
 import numpy as np
 import pandas as pd
 from sklearn.utils import shuffle
@@ -123,19 +122,23 @@ def test_splitted_func():
 
 def test_dataset():
     df = pd.read_pickle('../datasets/df_test_line.tar.bz2')
-    print(df.head(20))
-    print(df.tail(20))
+    df = df[:10000]
+    df_doc = df[df['label']==1]
+    df_code = df[df['label']==0]
+
+    df_doc.to_csv('df_test_line_doc.csv')
+    df_code.to_csv('df_test_line_code.csv')
 
 
 def main():
     logging.basicConfig(
-        filename='../logs/adjacent_id_code.log',
-        level=logging.DEBUG,
-        filemode='w'
+        # filename='../logs/adjacent_id_code.log',
+        level=logging.INFO,
+        # filemode='w'
     )
-    corpus_to_line_dataset()
+    # corpus_to_line_dataset()
     # test_splitted_func()
-    # test_dataset()
+    test_dataset()
 
 
 if __name__ == '__main__':
