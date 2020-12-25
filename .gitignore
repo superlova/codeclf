@@ -9,6 +9,7 @@
 /venv
 /.ipynb_checkpoints
 /*/__pycache__
+/__pycache__
 
 # too big
 /models/*.hdf5
