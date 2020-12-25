@@ -8,6 +8,7 @@ FilePath: \codeclf\preprocessing\DataProcessor.py
 '''
 
 import tensorflow as tf
+import numpy as np
 import pandas as pd
 import logging
 import sys, os
@@ -102,15 +103,64 @@ def test_context():
     df_test = dp.process_files(data)
     print(df_test.tail())
 
-def test_tfdata():
+def test_tf_data():
     corpus_path = '../datasets/df_test_corpus.tar.bz2'
     df_data = pd.read_pickle(corpus_path)
     data = df_data['code']
+    dp = DataProcessor()
+    dataset = dp.process_context_tfdata_merge(data, before=1, after=1)
+    labels = []
+    for data, label in dataset.take(50):
+        labels.append(label.numpy())
+    print(labels)
+
+def test_tf_data_model():
+    import functools
+    from utils.CodeTokenizer import ContextCodeTokenizer
+    corpus_path = '../datasets/df_test_corpus.tar.bz2'
+    df_data = pd.read_pickle(corpus_path)
+    data = df_data['code']
+    VALID_SIZE = len(data)
+
 
     dp = DataProcessor()
-    dataset = dp.process_context_tfdata_divide(data, before=1, after=1)
-    for f, t in dataset.take(5):
-        print(f, t)
+    dataset = dp.process_context_tfdata_merge(data, before=1, after=1)
+    INPUT_LENGTH = 90
+    BATCH_SIZE = 1024
+
+    vocab_path = '../vocabs/nosplit_keyword_vocab50000.txt'
+    tokenizer = ContextCodeTokenizer(vocab_path)
+    def _feature_to_id_bta(features, label, tokenizer, input_length):
+        """Context特有的方法，将dataset中的上下文结合到一起并生成ids"""
+        return tokenizer.from_feature_to_token_id_bta(features[0].decode("utf-8"),
+                                                      features[1].decode("utf-8"),
+                                                      features[2].decode("utf-8"), maxlen=input_length), label
+    def tf_feature_to_id(features, label):
+        """Context特有的方法，将feature_to_id_bta包装为tf.py_function"""
+        label_shape = label.shape
+        [features, label] = tf.numpy_function(feature_to_id,
+                                    inp=[features, label],
+                                    Tout=[tf.int32, tf.int64])
+        features.set_shape((INPUT_LENGTH,))
+        label.set_shape(label_shape)
+        return features, label
+
+    feature_to_id = functools.partial(_feature_to_id_bta, tokenizer=tokenizer, input_length=INPUT_LENGTH)
+
+    val_ds = dataset.map(tf_feature_to_id, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    val_ds = val_ds.batch(BATCH_SIZE).prefetch(tf.data.experimental.AUTOTUNE)
+
+    model = tf.keras.models.load_model('../models/lstm_model_token_50000_context_try_1.hdf5')
+    model.summary()
+
+    validation_steps = tf.math.ceil(VALID_SIZE / BATCH_SIZE).numpy()
+    print(validation_steps)
+
+    res = model.predict(val_ds, steps=validation_steps)
+    res = np.asarray(res)
+    # print(res.round())
+    print(np.squeeze(res.round()))
+    # print(val_ds)
 
 
 def main():
@@ -118,7 +168,8 @@ def main():
         level=logging.INFO
     )
     # test_context()
-    test_tfdata()
+    # test_tf_data()
+    test_tf_data_model()
 
 
 if __name__ == '__main__':
