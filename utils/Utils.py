@@ -210,22 +210,40 @@ def progress(percent, width=50):
     print('\r%s %d%%' % (show_str, percent), end='')
 
 
+def compute_metrics(model, validation_data):
+    val_predict = (np.asarray(model.predict(validation_data[0]))).round()
+    val_targ = validation_data[1]
+    _val_acc = accuracy_score(val_targ, val_predict)
+    _val_f1 = f1_score(val_targ, val_predict)
+    _val_recall = recall_score(val_targ, val_predict)
+    _val_precision = precision_score(val_targ, val_predict)
+    _val_auc = roc_auc_score(val_targ, val_predict)
+    return _val_acc, _val_f1, _val_precision, _val_recall, _val_auc
+
 class Metrics(Callback):
-    def __init__(self, valid_data, valid_size, valid_steps):
+    def __init__(self, valid_data, valid_steps):
         super(Metrics, self).__init__()
         self.validation_data = valid_data
         self.valid_steps = valid_steps
+        ###
         self.validation_label = []
-        for _, label in valid_data.unbatch().take(valid_size):
-            self.validation_label.append(label.numpy())
-        self.validation_label = np.asarray(self.validation_label).reshape(-1, 1)
-        logging.debug(f"{self.validation_label.shape}")
+        for _, batch_label in self.validation_data.take(self.valid_steps):
+            for label in batch_label:
+                self.validation_label.append(label.numpy())
+        self.validation_label = np.asarray(self.validation_label)
 
     def on_epoch_end(self, epoch, logs=None):
+        veri = []
+        for _, label in self.validation_data.unbatch().take(5):
+            veri.append(label.numpy())
+        print("\nveri: ", veri)
+        print(self.validation_label[:5])
+
         logs = logs or {}
         val_predict = np.asarray(self.model.predict(self.validation_data, steps=self.valid_steps)).round()
+        val_predict = np.squeeze(val_predict)
         val_targ = self.validation_label
-        logging.debug(f"{val_predict.shape}")
+        logging.info(f"val_predict.shape: {val_predict.shape}")
 
         _val_f1 = f1_score(val_targ, val_predict)
         _val_recall = recall_score(val_targ, val_predict)
@@ -238,3 +256,16 @@ class Metrics(Callback):
         logs['val_auc'] = _val_auc
         print(f"val_f1: {_val_f1} — val_precision: {_val_precision} — val_recall: {_val_recall} — val_auc: {_val_auc}")
         return
+
+
+def test_metrics():
+    preds = np.array([1,0,0,1,0])
+    labels = np.array([1,1,0,1,0])
+
+    print(f1_score(preds, labels))
+
+def main():
+    test_metrics()
+
+if __name__ == "__main__":
+    main()

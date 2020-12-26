@@ -82,7 +82,7 @@ class DataProcessor(object):
 
         label = df.pop('label')
         dataset = tf.data.Dataset.from_tensor_slices((df.values, label.values))
-        dataset = dataset.shuffle(100000).repeat()
+        dataset = dataset.shuffle(100000, reshuffle_each_iteration=False).repeat()
         return dataset
 
 

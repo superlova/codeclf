@@ -30,6 +30,16 @@ class BasicModel(object):
             return
         self.model.save(save_path)
 
+    # def compute_metrics(self, model, validation_data):
+    #     val_predict = (np.asarray(model.predict(validation_data[0]))).round()
+    #     val_targ = validation_data[1]
+    #     _val_acc = accuracy_score(val_targ, val_predict)
+    #     _val_f1 = f1_score(val_targ, val_predict)
+    #     _val_recall = recall_score(val_targ, val_predict)
+    #     _val_precision = precision_score(val_targ, val_predict)
+    #     _val_auc = roc_auc_score(val_targ, val_predict)
+    #     return _val_acc, _val_f1, _val_precision, _val_recall, _val_auc
+
 
 class ClfModel(BasicModel):
     def __init__(self, embedding_dim=200, batch_size=32, epochs=15, hidden_dim=50):
@@ -365,7 +375,6 @@ class ContextModel(BasicModel):
 
         logging.info("metrics start")
         metrics = Metrics(valid_data=self.val_ds,
-                valid_size=self.VALID_SIZE,
                 valid_steps=validation_steps)
         logging.info("metric end")
 
@@ -564,28 +573,68 @@ def test_context_model():
 
 
 def test_context_split_model():
-    trainer = ContextSpiltModel(before=2, after=2, context_mode='bat')
+    trainer = ContextSpiltModel(before=0, after=0, context_mode='bat')
     trainer.load_vocab('../vocabs/split_keyword_vocab50000.txt')
 
     logging.info('loading training data...')
     trainer.load_datasets(train_path='../datasets/df_train_corpus.tar.bz2',
                           valid_path='../datasets/df_valid_corpus.tar.bz2',
-                          frac=1.0)
+                          frac=0.1)
 
     logging.info('datasets ready!')
-    trainer.construct_model(model_type='bilstm_3_dense')
+    trainer.construct_model(model_type='lstm_1')
 
     logging.info('start training...')
-    trainer.train_model(checkpoint_save_path='../checkpoint/bilstm_3_dense_bat22data50000vocab50000split_1')
+    trainer.train_model(checkpoint_save_path='../checkpoint/lstm_1_bat00data50000vocab50000split_1')
 
     logging.info('saving model...')
-    trainer.save_model('../models/bilstm_3_dense_bat22data50000vocab50000split_1.hdf5')
+    trainer.save_model('../models/lstm_1_bat00data50000vocab50000split_1.hdf5')
 
     trainer.plot_history()
 
     logging.info('evaluating model...')
     trainer.evaluate(test_path='../datasets/df_test_corpus.tar.bz2')
 
+
+def test_valid_data():
+    trainer = ContextSpiltModel(before=0, after=0, context_mode='bat')
+    trainer.load_vocab('../vocabs/split_keyword_vocab50000.txt')
+
+    # logging.info('loading training data...')
+    trainer.load_datasets(train_path='../datasets/df_train_corpus.tar.bz2',
+                          valid_path='../datasets/df_valid_corpus.tar.bz2',
+                          frac=0.1)
+    print("trainer.VALID_SIZE: ", trainer.VALID_SIZE)
+    print("trainer.BATCH_SIZE: ", trainer.BATCH_SIZE)
+
+    validation_label = []
+    for _, batch_label in trainer.val_ds.take(3):
+        for label in batch_label:
+            validation_label.append(label.numpy())
+    print("len(validation_label): ", len(validation_label))
+    print("validation_label: ", validation_label)
+    print("sum of label", np.sum(validation_label) / len(validation_label))
+
+    trainer.construct_model(model_type='lstm_1')
+    validation_steps = tf.math.ceil(trainer.VALID_SIZE / trainer.BATCH_SIZE).numpy()
+    print("validation_steps: ", validation_steps)
+
+    # logging.info("metrics start")
+    # metrics = Metrics(valid_data=trainer.val_ds,
+    #                   valid_size=trainer.VALID_SIZE,
+    #                   valid_steps=validation_steps)
+    # logging.info("metric end")
+    #
+    # self.history = self.model.fit(self.train_ds, epochs=self.EPOCHS, validation_data=self.val_ds,
+    #                               callbacks=[metrics,
+    #                                          check_point,
+    #                                          early_stopping],
+    #                               steps_per_epoch=steps_per_epoch, validation_steps=validation_steps)
+
+    val_predict = np.asarray(trainer.model.predict(trainer.val_ds, steps=validation_steps)).round()
+    val_predict = np.squeeze(val_predict)
+    print("len(validation_label): ", len(val_predict))
+    print("validation_label: ", val_predict)
 
 def main():
     logging.basicConfig(
@@ -597,6 +646,7 @@ def main():
     # test_tokenize_map()
     # test_context_model()
     test_context_split_model()
+    # test_valid_data()
 
 
 if __name__ == '__main__':
