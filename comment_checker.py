@@ -1,14 +1,13 @@
 '''
 Date: 2020-12-28 08:54:28
 LastEditors: superlova
-LastEditTime: 2020-12-28 13:16:26
-FilePath: /codeclf/codeclf2.py
+LastEditTime: 2020-12-28 16:05:29
+FilePath: /codeclf/comment_checker.py
 '''
 
 import os
 from token import NAME, NUMBER, STRING, OP, ERRORTOKEN, COMMENT
 from tokenize import tokenize, TokenError
-from ast import parse
 from json import dump
 from argparse import ArgumentParser
 from numpy import asarray, squeeze
@@ -25,9 +24,9 @@ class CommentChecker(object):
                  mc_path,  # （可选）训练好的character模型
                  mt_path,  # （可选）训练好的 token模型
                  vocab_path,  # （可选）token模型使用的词表文件
-                 level=0,  # （可选）输出结果的目录
-                 output='file',
-                 recursive=True,
+                 aggresive=False,
+                 output=False,  # save results to csv
+                 recursive=False,
                  keyword="vocabs/vocab_keywords.txt"
                  ):
         self.scan_path = scan_path
@@ -37,7 +36,7 @@ class CommentChecker(object):
 
         self.model_loader()
         self.init_dict(keyword)
-        self.level = level
+        self.aggresive = aggresive
         self.output = output
         self.recursive = recursive
 
@@ -210,10 +209,14 @@ class CommentChecker(object):
         if self.scan_path.endswith('.py'):
             path = os.path.abspath(self.scan_path)
             comment_info = self.read_comments([path])
-        else:
+        elif self.recursive:
             comment_info = self.read_comments(self.scan_subdir(self.scan_path))
+        else:
+            print("Not a valid python file name.")
+            print("If you want scan a dir, try -r mode.")
+            return
 
-        if not self.recursive and self.scan_path.endswith('.py'):
+        if not self.output:
             lines = []
             for dic in comment_info:
                 lines.append(dic['content'])
@@ -243,7 +246,7 @@ class CommentChecker(object):
             co_from_mc.append(comment_info[lineno])
         cos.extend(co_from_mc)
 
-        if self.level == 0:
+        if self.aggresive == True:
             for i in co_from_mt:
                 for j in co_from_mc:
                     if i.get('content') == j.get('content') \
@@ -297,7 +300,9 @@ class CommentChecker(object):
         return result
 
     def output_res(self, comment_info):
-        with open(os.path.join('results', 'code_warning.json'), 'w') as f:
+        if not os.path.exists(os.path.abspath('./results')):
+            os.makedirs('./results')
+        with open(os.path.join('results', 'commented_out_codes.json'), 'w') as f:
             dump({'problems': comment_info}, f)
         parse_js()
 
@@ -331,13 +336,13 @@ def main():
                         default='vocabs/vocab_20000.txt',
                         dest='vocab_path')
 
-    parser.add_argument('-l', dest='level',
-                        default=0,
-                        help='checker scan level')
+    parser.add_argument('-a', '--aggresive', dest='aggresive',
+                        action='store_true',
+                        help='use aggresive mode')
 
     parser.add_argument('-o', dest='output',
-                        default='file',
-                        help='output to file or print')
+                        action='store_true',
+                        help='save results to csv')
 
     parser.add_argument('-r', dest='recursive',
                         action='store_true',
@@ -349,7 +354,7 @@ def main():
             'mc_path': args.mc_path,
             'mt_path': args.mt_path,
             'vocab_path': args.vocab_path,
-            'level': args.level,
+            'aggresive': args.aggresive,
             'output': args.output,
             'recursive': args.recursive
             }
