@@ -233,12 +233,6 @@ class Metrics(Callback):
         self.validation_label = np.asarray(self.validation_label)
 
     def on_epoch_end(self, epoch, logs=None):
-        veri = []
-        for _, label in self.validation_data.unbatch().take(5):
-            veri.append(label.numpy())
-        print("\nveri: ", veri)
-        print(self.validation_label[:5])
-
         logs = logs or {}
         val_predict = np.asarray(self.model.predict(self.validation_data, steps=self.valid_steps)).round()
         val_predict = np.squeeze(val_predict)
@@ -249,12 +243,16 @@ class Metrics(Callback):
         _val_recall = recall_score(val_targ, val_predict)
         _val_precision = precision_score(val_targ, val_predict)
         _val_auc = roc_auc_score(val_targ, val_predict)
+        # try:
+        #     _val_auc = roc_auc_score(val_targ, val_predict)
+        # except ValueError:
+        #     _val_auc = 0
 
         logs['val_f1'] = _val_f1
         logs['val_recall'] = _val_recall
         logs['val_precision'] = _val_precision
         logs['val_auc'] = _val_auc
-        print(f"val_f1: {_val_f1} — val_precision: {_val_precision} — val_recall: {_val_recall} — val_auc: {_val_auc}")
+        print(f"\nval_f1: {_val_f1} — val_precision: {_val_precision} — val_recall: {_val_recall} — val_auc: {_val_auc}")
         return
 
 

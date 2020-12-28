@@ -71,7 +71,7 @@ class DataProcessor(object):
         dataset = tf.data.Dataset.from_tensor_slices((df.values, label.values))
         return dataset
 
-    def process_context_tfdata_merge(self, file_texts, before=1, after=1):
+    def process_context_tfdata_merge(self, file_texts, before=1, after=1, reshuffle=True):
         """将df['code']分行、获得上下文、转化为dataset并打乱"""
         codes, docs = self.context_encoder.context_merge_all(file_texts, before, after)
         df_codes = pd.DataFrame(data=codes, columns=['before', 'text', 'after', 'label'])
@@ -82,7 +82,7 @@ class DataProcessor(object):
 
         label = df.pop('label')
         dataset = tf.data.Dataset.from_tensor_slices((df.values, label.values))
-        dataset = dataset.shuffle(100000, reshuffle_each_iteration=False).repeat()
+        dataset = dataset.shuffle(100000, reshuffle_each_iteration=reshuffle).repeat()
         return dataset
 
 

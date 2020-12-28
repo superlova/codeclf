@@ -8,10 +8,11 @@ import functools
 
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 
 import tensorflow as tf
-# project_dir = 'C:/Users/zyt/Documents/GitHub Repositories/codeclf_gui/codeclf'
-# sys.path.append(project_dir)
+from tensorflow.keras.preprocessing import sequence
+
 from utils.CodeTokenizer import CodeTokenizer, CodeSplitTokenizer
 from utils.CodeTokenizer import ContextCodeTokenizer, ContextCodeSplitTokenizer
 from utils.Utils import timethis, Metrics
@@ -21,6 +22,9 @@ import logging
 
 
 class BasicModel(object):
+    def __init__(self):
+        self.history = None
+
     def load_model(self, model_path):
         self.model = tf.keras.models.load_model(model_path)
 
@@ -29,6 +33,18 @@ class BasicModel(object):
             print('Model not exist. Please training first.')
             return
         self.model.save(save_path)
+
+    def plot_history(self):
+        if not self.history:
+            print('No training history. Please training first.')
+            return
+        plt.plot(self.history.history['accuracy'])
+        plt.plot(self.history.history['val_accuracy'])
+        plt.title('Model accuracy')
+        plt.ylabel('Accuracy')
+        plt.xlabel('Epoch')
+        plt.legend(['Train', 'Test'], loc='upper left')
+        plt.show()
 
     # def compute_metrics(self, model, validation_data):
     #     val_predict = (np.asarray(model.predict(validation_data[0]))).round()
@@ -41,8 +57,201 @@ class BasicModel(object):
     #     return _val_acc, _val_f1, _val_precision, _val_recall, _val_auc
 
 
+class CharModel(BasicModel):
+    """训练字符模型
+    """
+
+    def __init__(self, embedding_dim=200, batch_size=32, epochs=15, hidden_dim=50):
+        super().__init__()
+        self.EMBEDDING_DIM = embedding_dim
+        self.BATCH_SIZE = batch_size
+        self.EPOCHS = epochs
+        self.HIDDEN_DIM = hidden_dim
+        self.load_vocab()
+        self.threshold = 3
+
+    def load_vocab(self):
+        alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890~!@#$%^&*()` ,./<>?;':\"[]{}=-+_\t\r\n|\\"
+        self.char_to_int = dict((c, i + 3) for i, c in enumerate(alphabet))
+        self.char_to_int['<PAD>'] = 0
+        self.char_to_int['<UNK>'] = 1
+        self.char_to_int['<SEP>'] = 2
+        self.int_to_char = dict((i, c) for c, i in self.char_to_int.items())
+        self.VOCAB_SIZE = len(self.char_to_int)
+
+    def from_text_to_character_id(self, line):
+        """将一行代码转换成字符序列，然后转换成id
+        """
+
+        def check_dict(word):
+            if word in self.char_to_int.keys():
+                return self.char_to_int.get(word)
+            return self.char_to_int.get('<UNK>')
+
+        char_array = np.asarray(list(line), dtype=str)
+        int_array = np.asarray(list(map(check_dict, char_array)))
+        return int_array
+
+    def from_text_to_character_input(self, text, threshold=3, maxlen=70):
+        """专门扫描一个文件中的文本，返回内容。
+        """
+
+        def check_dict(word):
+            if word in self.char_to_int.keys():
+                return self.char_to_int.get(word)
+            return self.char_to_int.get('<UNK>')
+
+        inputs = []
+        for row in text:
+            char_array = np.asarray(list(row), dtype=str)
+            int_array = np.asarray(list(map(check_dict, char_array)))
+            if len(int_array) >= threshold:
+                inputs.append(int_array)
+        return sequence.pad_sequences(np.asarray(inputs), padding='post', value=0, maxlen=maxlen)
+
+    def from_text_to_character_input_and_index(self, text, threshold=3, maxlen=70):
+        """专门扫描一个文件中的文本，返回行号和内容。
+        """
+
+        def check_dict(word):
+            if word in self.char_to_int.keys():
+                return self.char_to_int.get(word)
+            return self.char_to_int.get('<UNK>')
+
+        inputs = []
+        indexes = []
+        for index, row in enumerate(text):
+            char_array = np.asarray(list(row), dtype=str)
+            int_array = np.asarray(list(map(check_dict, char_array)))
+            if len(int_array) >= threshold:
+                inputs.append(int_array)
+                indexes.append(index)
+        return sequence.pad_sequences(np.asarray(inputs), padding='post', value=0, maxlen=maxlen), indexes
+
+    @timethis
+    def load_datasets(self, train_path, valid_path, frac=1.0):
+        """训练前的数据导入
+        """
+
+        df_train = pd.read_pickle(train_path)
+        df_valid = pd.read_pickle(valid_path)
+
+        df_train = df_train.sample(frac=frac, random_state=42)
+        df_valid = df_valid.sample(frac=frac, random_state=42)
+        print(f'limiting training dataset: {len(df_train)}')
+        print(f'limiting valid dataset: {len(df_valid)}')
+
+        self.TRAIN_SIZE = len(df_train)
+        self.VALID_SIZE = len(df_valid)
+        self.INPUT_LENGTH = 70
+
+        df_train_code = df_train[df_train['label'] == 0]  # 代码
+        df_train_doc = df_train[df_train['label'] == 1]  # Doc
+        df_valid_code = df_valid[df_valid['label'] == 0]  # 代码
+        df_valid_doc = df_valid[df_valid['label'] == 1]  # Doc
+
+        df_train_code = df_train_code[:len(df_train_doc)]
+        df_valid_code = df_valid_code[:len(df_valid_doc)]
+
+        X_train = []
+        y_train = []
+        for data in df_train_code['data']:
+            int_array = np.asarray(list(map(self.from_text_to_character_id, data)))
+            if len(int_array) >= self.threshold:
+                X_train.append(int_array)
+                y_train.append(0)
+        for data in df_train_doc['data']:
+            int_array = np.asarray(list(map(self.from_text_to_character_id, data)))
+            if len(int_array) >= self.threshold:
+                X_train.append(int_array)
+                y_train.append(1)
+        self.X_train = sequence.pad_sequences(np.asarray(X_train), padding='post', value=0, maxlen=self.INPUT_LENGTH)
+        self.y_train = np.asarray(y_train)
+
+        X_valid = []
+        y_valid = []
+        for data in df_valid_code['data']:
+            int_array = np.asarray(list(map(self.from_text_to_character_id, data)))
+            if len(int_array) >= self.threshold:
+                X_valid.append(int_array)
+                y_valid.append(0)
+        for data in df_valid_doc['data']:
+            int_array = np.asarray(list(map(self.from_text_to_character_id, data)))
+            if len(int_array) >= self.threshold:
+                X_valid.append(int_array)
+                y_valid.append(1)
+        self.X_valid = sequence.pad_sequences(np.asarray(X_valid), padding='post', value=0, maxlen=self.INPUT_LENGTH)
+        self.y_valid = np.asarray(y_valid)
+
+        logging.info(f"X_train: {len(X_train)}, X_valid: {len(X_valid)}")
+
+    def construct_model(self):
+        self.model = tf.keras.Sequential([
+            tf.keras.layers.Embedding(input_dim=self.VOCAB_SIZE, input_length=self.INPUT_LENGTH,
+                                      output_dim=self.EMBEDDING_DIM),
+            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(self.HIDDEN_DIM, dropout=0.5)),
+            tf.keras.layers.Dense(1, activation='sigmoid')
+        ])
+        self.model.compile(optimizer='adam',
+                           loss=tf.keras.losses.BinaryCrossentropy(from_logits=True),
+                           metrics=['accuracy'])
+        self.model.summary()
+
+    @timethis
+    def train_model(self, checkpoint_save_path, patience=5):
+        def get_checkpoint_callback(checkpoint_path):
+            cp_callbacks = tf.keras.callbacks.ModelCheckpoint(
+                monitor='val_accuracy',
+                mode='max',
+                verbose=2,
+                filepath=checkpoint_path,
+                save_weights_only=True,
+                save_best_only=True)
+            return cp_callbacks
+
+        def get_earlystop_callback(patience=5):
+            es_callbacks = tf.keras.callbacks.EarlyStopping(
+                monitor='val_accuracy', patience=patience
+            )
+            return es_callbacks
+
+        if os.path.exists(checkpoint_save_path + '.index'):
+            print('Checkpoint detected, loading the model...')
+            self.model.load_weights(checkpoint_save_path)
+        check_point = get_checkpoint_callback(checkpoint_save_path)
+        early_stopping = get_earlystop_callback(patience)
+
+        self.history = self.model.fit(self.X_train, self.y_train, epochs=self.EPOCHS, batch_size=self.BATCH_SIZE,
+                                      validation_data=(self.X_valid, self.y_valid),
+                                      callbacks=[early_stopping, check_point])
+
+    @timethis
+    def evaluate(self, test_path):
+        if not self.model:
+            print('Model not exist. Please training first.')
+            return
+        if not self.X_test:
+            df_test = pd.read_pickle(test_path)
+            self.TEST_SIZE = len(df_test)
+            X_test = []
+            y_test = []
+            for data, label in zip(df_test['data'], df_test['label']):
+                int_array = np.asarray(list(map(self.from_text_to_character_id, data)))
+                if len(int_array) >= self.threshold:
+                    X_test.append(int_array)
+                    y_test.append(label)
+            self.X_test = sequence.pad_sequences(np.asarray(X_test), padding='post', value=0, maxlen=self.INPUT_LENGTH)
+            self.y_test = np.asarray(y_test)
+
+            logging.info(f"X_test: {len(X_test)}")
+
+        loss, acc = self.model.evaluate(X=self.X_test, y=self.y_test, batch_size=self.BATCH_SIZE)
+        print(f'loss: {loss}, acc: {acc}')
+
+
 class ClfModel(BasicModel):
     def __init__(self, embedding_dim=200, batch_size=32, epochs=15, hidden_dim=50):
+        super().__init__()
         self.EMBEDDING_DIM = embedding_dim
         self.BATCH_SIZE = batch_size
         self.EPOCHS = epochs
@@ -131,19 +340,6 @@ class ClfModel(BasicModel):
                                       callbacks=[early_stopping, check_point],
                                       steps_per_epoch=steps_per_epoch, validation_steps=validation_steps)
 
-    def plot_history(self):
-        if not self.history:
-            print('No training history. Please training first.')
-            return
-        import matplotlib.pyplot as plt
-        plt.plot(self.history.history['accuracy'])
-        plt.plot(self.history.history['val_accuracy'])
-        plt.title('Model accuracy')
-        plt.ylabel('Accuracy')
-        plt.xlabel('Epoch')
-        plt.legend(['Train', 'Test'], loc='upper left')
-        plt.show()
-
     @timethis
     def evaluate(self, test_path):
         if not self.model:
@@ -179,6 +375,7 @@ class ClfSplitModel(ClfModel):
 class ContextModel(BasicModel):
     def __init__(self, before=1, after=1, embedding_dim=200, batch_size=1024, epochs=40, hidden_dim=50,
                  context_mode='bta'):
+        super().__init__()
         self.EMBEDDING_DIM = embedding_dim
         self.BATCH_SIZE = batch_size
         self.EPOCHS = epochs
@@ -223,9 +420,9 @@ class ContextModel(BasicModel):
         df_valid = df_valid['code']
 
         # if limit_dataset != -1:
-            # print(f'limiting training dataset: {limit_dataset}')
-            # df_train = df_train.sample(limit_dataset, random_state=42)
-            # df_valid = df_valid.sample(limit_dataset, random_state=42)
+        # print(f'limiting training dataset: {limit_dataset}')
+        # df_train = df_train.sample(limit_dataset, random_state=42)
+        # df_valid = df_valid.sample(limit_dataset, random_state=42)
         df_train = df_train.sample(frac=frac, random_state=42)
         df_valid = df_valid.sample(frac=frac, random_state=42)
         print(f'limiting training dataset: {len(df_train)}')
@@ -237,44 +434,47 @@ class ContextModel(BasicModel):
         logging.info(f"{len(df_train)}, {len(df_valid)}")
 
         if self.CONTEXT_MODE == 'bta':
-            feature_to_id = functools.partial(self._feature_to_id_bta, tokenizer=self.tokenizer, input_length=self.INPUT_LENGTH)
+            feature_to_id = functools.partial(self._feature_to_id_bta, tokenizer=self.tokenizer,
+                                              input_length=self.INPUT_LENGTH)
         elif self.CONTEXT_MODE == 'bat':
-            feature_to_id = functools.partial(self._feature_to_id_bat, tokenizer=self.tokenizer, input_length=self.INPUT_LENGTH)
+            feature_to_id = functools.partial(self._feature_to_id_bat, tokenizer=self.tokenizer,
+                                              input_length=self.INPUT_LENGTH)
         elif self.CONTEXT_MODE == 'tba':
-            feature_to_id = functools.partial(self._feature_to_id_tba, tokenizer=self.tokenizer, input_length=self.INPUT_LENGTH)
+            feature_to_id = functools.partial(self._feature_to_id_tba, tokenizer=self.tokenizer,
+                                              input_length=self.INPUT_LENGTH)
         else:
-            feature_to_id = functools.partial(self._feature_to_id_bta, tokenizer=self.tokenizer, input_length=self.INPUT_LENGTH)
-
+            feature_to_id = functools.partial(self._feature_to_id_bta, tokenizer=self.tokenizer,
+                                              input_length=self.INPUT_LENGTH)
 
         def tf_feature_to_id(features, label):
             """Context特有的方法，将feature_to_id_bta包装为tf.py_function"""
             label_shape = label.shape
             [features, label] = tf.numpy_function(feature_to_id,
-                                        inp=[features, label],
-                                        Tout=[tf.int32, tf.int64])
+                                                  inp=[features, label],
+                                                  Tout=[tf.int32, tf.int64])
             features.set_shape((self.INPUT_LENGTH,))
             label.set_shape(label_shape)
             return features, label
 
         dp = DataProcessor()
         ds_train = dp.process_context_tfdata_merge(df_train, self.CONTEXT_BEFORE, self.CONTEXT_AFTER)
-        ds_valid = dp.process_context_tfdata_merge(df_valid, self.CONTEXT_BEFORE, self.CONTEXT_AFTER)
+        ds_valid = dp.process_context_tfdata_merge(df_valid, self.CONTEXT_BEFORE, self.CONTEXT_AFTER, reshuffle=False)
 
         ds_train = ds_train.map(tf_feature_to_id, num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
         train_code_ds = (ds_train
-            .filter(lambda features, label: label == 0)
-            .shuffle(100000)
-            .repeat())
+                         .filter(lambda features, label: label == 0)
+                         .shuffle(100000)
+                         .repeat())
         train_docs_ds = (ds_train
-            .filter(lambda features, label: label == 1)
-            .shuffle(100000)
-            .repeat())
+                         .filter(lambda features, label: label == 1)
+                         .shuffle(100000)
+                         .repeat())
         self.train_ds = tf.data.experimental.sample_from_datasets(
-            [train_code_ds, train_docs_ds], 
+            [train_code_ds, train_docs_ds],
             weights=[0.5, 0.5])
         self.train_ds = self.train_ds.batch(self.BATCH_SIZE).prefetch(tf.data.experimental.AUTOTUNE)
-        
+
         self.val_ds = ds_valid.map(tf_feature_to_id, num_parallel_calls=tf.data.experimental.AUTOTUNE)
         self.val_ds = self.val_ds.batch(self.BATCH_SIZE).prefetch(tf.data.experimental.AUTOTUNE)
 
@@ -375,7 +575,7 @@ class ContextModel(BasicModel):
 
         logging.info("metrics start")
         metrics = Metrics(valid_data=self.val_ds,
-                valid_steps=validation_steps)
+                          valid_steps=validation_steps)
         logging.info("metric end")
 
         self.history = self.model.fit(self.train_ds, epochs=self.EPOCHS, validation_data=self.val_ds,
@@ -383,19 +583,6 @@ class ContextModel(BasicModel):
                                                  check_point,
                                                  early_stopping],
                                       steps_per_epoch=steps_per_epoch, validation_steps=validation_steps)
-
-    def plot_history(self):
-        if not self.history:
-            print('No training history. Please training first.')
-            return
-        import matplotlib.pyplot as plt
-        plt.plot(self.history.history['accuracy'])
-        plt.plot(self.history.history['val_accuracy'])
-        plt.title('Model accuracy')
-        plt.ylabel('Accuracy')
-        plt.xlabel('Epoch')
-        plt.legend(['Train', 'Test'], loc='upper left')
-        plt.show()
 
     @timethis
     def evaluate(self, test_path):
@@ -425,8 +612,8 @@ class ContextModel(BasicModel):
             """Context特有的方法，将feature_to_id_bta包装为tf.py_function"""
             label_shape = label.shape
             [features, label] = tf.numpy_function(feature_to_id,
-                                        inp=[features, label],
-                                        Tout=[tf.int32, tf.int64])
+                                                  inp=[features, label],
+                                                  Tout=[tf.int32, tf.int64])
             features.set_shape((self.INPUT_LENGTH,))
             label.set_shape(label_shape)
             return features, label
@@ -444,7 +631,8 @@ class ContextModel(BasicModel):
 class ContextSpiltModel(ContextModel):
     def __init__(self, before=1, after=1, embedding_dim=200, batch_size=1024, epochs=40, hidden_dim=50,
                  context_mode='bta'):
-        super(ContextSpiltModel, self).__init__(before, after, embedding_dim, batch_size, epochs, hidden_dim, context_mode)
+        super(ContextSpiltModel, self).__init__(before, after, embedding_dim, batch_size, epochs, hidden_dim,
+                                                context_mode)
 
     def load_vocab(self, vocab_path):
         self.tokenizer = ContextCodeSplitTokenizer(vocab_path)
@@ -524,8 +712,8 @@ def test_count_token_avg():
 def test_tokenize_map():
     def feature_to_id_bta(features, label):
         return ccst.from_feature_to_token_id_bta(features[0].numpy().decode("utf-8"),
-                                                features[1].numpy().decode("utf-8"),
-                                                features[2].numpy().decode("utf-8")), label
+                                                 features[1].numpy().decode("utf-8"),
+                                                 features[2].numpy().decode("utf-8")), label
 
     corpus_path = '../datasets/df_test_corpus.tar.bz2'
     df_data = pd.read_pickle(corpus_path)
@@ -539,9 +727,9 @@ def test_tokenize_map():
     # print(ds_features)
 
     ds = ds.map(lambda features, label:
-                     tf.py_function(feature_to_id_bta,
-                                    inp=[features, label],
-                                    Tout=[tf.string, tf.int32]))
+                tf.py_function(feature_to_id_bta,
+                               inp=[features, label],
+                               Tout=[tf.string, tf.int32]))
 
     for feature, label in ds:
         print(feature)
@@ -636,6 +824,23 @@ def test_valid_data():
     print("len(validation_label): ", len(val_predict))
     print("validation_label: ", val_predict)
 
+
+def test_char_model():
+    cm = CharModel()
+    cm.load_datasets(train_path='../datasets/df_train_line.tar.bz2',
+                     valid_path='../datasets/df_valid_line.tar.bz2',
+                     frac=0.05)
+    cm.construct_model()
+    cm.train_model(checkpoint_save_path='../checkpoint/char_model_1')
+    logging.info('saving model...')
+    cm.save_model('../models/char_model_1.hdf5')
+
+    cm.plot_history()
+
+    logging.info('evaluating model...')
+    cm.evaluate(test_path='../datasets/df_test_line.tar.bz2')
+
+
 def main():
     logging.basicConfig(
         level=logging.INFO
@@ -645,8 +850,9 @@ def main():
     # test_count_token_avg()
     # test_tokenize_map()
     # test_context_model()
-    test_context_split_model()
+    # test_context_split_model()
     # test_valid_data()
+    test_char_model()
 
 
 if __name__ == '__main__':
