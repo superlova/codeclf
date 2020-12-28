@@ -236,16 +236,16 @@ class CommentChecker(object):
         comment_inps, comment_idx = self.text_2_token(comments)
         predict_label = (self.mt.predict(comment_inps) > 0.5).astype("int32")
         co_from_mt = []
-        mask = [squeeze(predict_label) == 0]
-        for lineno in asarray(comment_idx)[tuple(mask)]:
+        mask = [squeeze(predict_label) == 0][0]
+        for lineno in asarray(comment_idx)[mask]:
             co_from_mt.append(comment_info[lineno])
 
         comments = [x.get('content') for x in comment_info]
         comment_inps, comment_idx = self.text_2_char(comments)
         predict_label = (self.mc.predict(comment_inps) > 0.5).astype("int32")
         co_from_mc = []
-        mask = [squeeze(predict_label) == 0]
-        for lineno in asarray(comment_idx)[tuple(mask)]:
+        mask = [squeeze(predict_label) == 0][0]
+        for lineno in asarray(comment_idx)[mask]:
             co_from_mc.append(comment_info[lineno])
         cos.extend(co_from_mc)
 
@@ -346,6 +346,16 @@ def main():
                         help='Search path recursively.')
 
     args = parser.parse_args()
+
+    if not os.path.exists(args.scan_path):
+        print("Path or file not exists! please check input and try again.")
+        return
+    elif not args.recursive and not args.scan_path.endswith('.py') or \
+            args.recursive and args.scan_path.endswith('.py'):
+        print("Not a valid python file name.")
+        print("If you want scan a dir, try -r mode.")
+        print("If not, do not use -r.")
+        return
 
     args = {'scan_path': args.scan_path,
             'mc_path': args.mc_path,
