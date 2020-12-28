@@ -4,6 +4,9 @@
 # /datasets/*
 /datasets/python.zip
 /checkpoint/*
+/build
+/dist
+/*.spec
 
 /.idea
 /venv
