@@ -11,8 +11,7 @@ from csv import DictWriter
 
 
 def write_csv(csv_file, json_dict):
-    csv_columns = ['file', 'line', 'highlighted_element', 'offset', 'length', 'module', 'problem_class', 'entry_point',
-                   'description']
+    csv_columns = ['file_path', 'lineno', 'content']
     try:
         with open(csv_file, 'w', newline='') as csvfile:
             writer = DictWriter(csvfile, fieldnames=csv_columns)
@@ -22,14 +21,16 @@ def write_csv(csv_file, json_dict):
     except IOError as e:
         print("I/O error:", e)
 
-
-def main():
+def parse_js():
     result_path = os.path.join(os.getcwd(), 'results')
     file = os.path.join(result_path, 'code_warning.json')
     with open(file, 'r') as f:
         json_dict = load(f)
     csv_file = os.path.join(result_path, "code_warning.csv")
     write_csv(csv_file, json_dict)
+
+def main():
+    parse_js
 
 
 if __name__ == '__main__':

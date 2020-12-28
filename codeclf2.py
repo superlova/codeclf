@@ -1,7 +1,7 @@
 '''
 Date: 2020-12-28 08:54:28
 LastEditors: superlova
-LastEditTime: 2020-12-28 12:28:14
+LastEditTime: 2020-12-28 13:16:26
 FilePath: /codeclf/codeclf2.py
 '''
 
@@ -14,31 +14,36 @@ from argparse import ArgumentParser
 from numpy import asarray, squeeze
 from tensorflow.keras.models import load_model
 from tensorflow.keras.preprocessing import sequence
-from functools import wraps
+from parsejson import parse_js
 
 from utils.Utils import create_generator
 
-class Classifier(object):
+
+class CommentChecker(object):
     def __init__(self,
                  scan_path,  # 指定扫描目录，或者文件
                  mc_path,  # （可选）训练好的character模型
                  mt_path,  # （可选）训练好的 token模型
                  vocab_path,  # （可选）token模型使用的词表文件
-                 res_path,  # （可选）输出结果的目录
+                 level=0,  # （可选）输出结果的目录
+                 output='file',
+                 recursive=True,
                  keyword="vocabs/vocab_keywords.txt"
                  ):
         self.scan_path = scan_path
         self.mc_path = mc_path
         self.mt_path = mt_path
         self.vocab_path = vocab_path
-        self.res_path = res_path
 
         self.model_loader()
         self.init_dict(keyword)
+        self.level = level
+        self.output = output
+        self.recursive = recursive
 
     def model_loader(self):
-        self.lstm_model_character = load_model(self.mc_path)
-        self.lstm_model_token = load_model(self.mt_path)
+        self.mc = load_model(self.mc_path)
+        self.mt = load_model(self.mt_path)
 
     def init_dict(self, keyword):
         alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890~!@#$%^&*()` ,./<>?;':\"[]{}=-+_\t\r\n|\\"
@@ -48,7 +53,7 @@ class Classifier(object):
         self.i2c = dict((i, c) for c, i in self.c2i.items())
 
         vocab = []
-        with open(vocab_path, 'r', encoding='utf8') as f:
+        with open(self.vocab_path, 'r', encoding='utf8') as f:
             for line in f:
                 vocab.append(line.rstrip('\n'))
         self.t2i = {row: index + 8 for index, row in enumerate(vocab)}
@@ -63,35 +68,35 @@ class Classifier(object):
         self.i2t = {v: k for k, v in self.t2i.items()}
 
         self.id_vocab = []
-        with open(vocab_path, 'r', encoding='utf8') as f:
+        with open(keyword, 'r', encoding='utf8') as f:
             for line in f:
                 self.id_vocab.append(line.rstrip('\n'))
 
     @staticmethod
     def scan_subdir(scan_path):
-        pyfiles = []
+        paths = []
         scan_path = os.path.abspath(scan_path)
         for file_path, _, files in os.walk(scan_path):
             for file in files:
                 if file.endswith('.py'):
-                    pyfiles.append(os.path.join(file_path, file))
-        return pyfiles
+                    paths.append(os.path.join(file_path, file))
+        return paths
 
     @staticmethod
     def load_file(filename):
-        sharps = []
+        comments = []
         try:
             with open(filename, 'r', encoding='utf8') as f:
                 for line in f:
-                    sharps.append(line.strip('\n'))
+                    comments.append(line.strip('\n'))
         except UnicodeDecodeError:
             pass
-        return sharps
+        return comments
 
-    def gather_sharp_data(self, pyfiles):
+    def read_comments(self, paths):
         """读取指定path对应的py文件的文本，并提取其#开头的所有行"""
         sharp_data = []
-        for pyfile in pyfiles:
+        for pyfile in paths:
             pycontent = self.load_file(pyfile)
             for lineno, line in enumerate(pycontent):
                 if line.lstrip().startswith('#'):
@@ -103,7 +108,7 @@ class Classifier(object):
                     sharp_data.append(dic)
         return sharp_data
 
-    def from_text_to_character_input_and_index(self, text, threshold=3, maxlen=70):
+    def text_2_char(self, text, threshold=3, maxlen=70):
         def check_dict(word):
             if word in self.c2i.keys():
                 return self.c2i.get(word)
@@ -120,7 +125,6 @@ class Classifier(object):
         return sequence.pad_sequences(asarray(inputs), padding='post', value=0, maxlen=maxlen), indexes
 
     def from_text_to_token_id(self, row):
-        """把一行代码转成token"""
         data_generator = create_generator([row])
         tokens_iterator = tokenize(data_generator)
         tokens = []
@@ -143,7 +147,7 @@ class Classifier(object):
                 elif toknum == COMMENT:
                     tokens.append(self.t2i.get('<COM>'))
         except TokenError:
-            pass  # 遍历到末尾会raise error
+            pass
         return tokens
 
     def check_adjacent_id(self, row):
@@ -155,7 +159,6 @@ class Classifier(object):
                 res.append((toknum, tokval))
         except TokenError:
             pass
-        # 检查有没有相邻的两个id，有的话则不是code
         for i in range(len(res) - 1):
             if res[i][0] == 1 \
                     and res[i + 1][0] == 1 \
@@ -164,7 +167,7 @@ class Classifier(object):
                 return True
         return False
 
-    def from_text_to_token_input_and_index(self, text, threshold=3, maxlen=30):
+    def text_2_token(self, text, threshold=3, maxlen=30):
         inputs = []
         indexes = []
         for index, row in enumerate(text):
@@ -177,71 +180,80 @@ class Classifier(object):
         return sequence.pad_sequences(asarray(inputs), padding='post', value=0, maxlen=maxlen), indexes
 
     @staticmethod
-    def reduce_sharp_by_rule(tuple_list):
-        reduced_set = []  # 还需进一步判断的行
-        code_set = []  # 不需进一步判断的行
-        for item in tuple_list:
+    def reduce_sharp_by_rule(comment_info):
+        reduced_set = []
+        code_set = []
+        for item in comment_info:
             try:
                 text_line = item['content']
                 if len(text_line.strip('=\'\"')) <= 1 \
                         or text_line == "coding=utf-8" \
                         or text_line[0].isupper() and text_line.endswith('.') \
-                        or not text_line.isascii(): # TODO 在这里判断太早，应该在
-                    # 出现这种特征，代表着绝不可能是代码
+                        or not text_line.isascii():
                     continue
                 elif text_line.startswith("from ") or text_line.startswith("import ") \
                         or text_line.startswith("self.") or " = " in text_line \
                         or text_line.startswith('(') and text_line.rstrip(',').endswith(')') \
                         or text_line.startswith('[') and text_line.rstrip(',').endswith(']'):
-                    compile(text_line, '<string>', 'exec')  # 尝试编译
+                    compile(text_line, '<string>', 'exec')
                     code_set.append(item)
                     continue
                 elif text_line.startswith("if __name__ =="):
-                    # 出现这种特征，肯定是代码
                     code_set.append(item)
                     continue
                 reduced_set.append(item)
             except:
-                reduced_set.append(item)  # 不通过说明from语句没通过编译
+                reduced_set.append(item)
         return reduced_set, code_set
 
-    def classify(self):
+    def check(self):
         if self.scan_path.endswith('.py'):
             path = os.path.abspath(self.scan_path)
-            tuple_list = self.gather_sharp_data([path])
+            comment_info = self.read_comments([path])
         else:
-            tuple_list = self.gather_sharp_data(self.scan_subdir(self.scan_path))
-        tuple_list, code_list = self.reduce_sharp_by_rule(tuple_list)
-        if len(tuple_list) <= 0:
-            self.dump_res(code_list)
+            comment_info = self.read_comments(self.scan_subdir(self.scan_path))
+
+        if not self.recursive and self.scan_path.endswith('.py'):
+            lines = []
+            for dic in comment_info:
+                lines.append(dic['content'])
+            comment_res = self.contains_code(lines)
+            self.pretty_print(lines, comment_res)
             return
 
-        sharps = [x.get('content') for x in tuple_list]
-        sharp_inputs, sharp_inputs_index = self.from_text_to_token_input_and_index(sharps)
-        predict_label = (self.lstm_model_token.predict(sharp_inputs) > 0.5).astype("int32")
-        code_item_token = []
-        mask = [squeeze(predict_label) == 0]  # code
-        for lineno in asarray(sharp_inputs_index)[tuple(mask)]:
-            code_item_token.append(tuple_list[lineno])
+        comment_info, cos = self.reduce_sharp_by_rule(comment_info)
+        if len(comment_info) <= 0:
+            self.output_res(cos)
+            return
 
-        sharps = [x.get('content') for x in tuple_list]
-        sharp_inputs, sharp_inputs_index = self.from_text_to_character_input_and_index(sharps)
-        predict_label = (self.lstm_model_character.predict(sharp_inputs) > 0.5).astype("int32")
-        code_item_char = []
-        mask = [squeeze(predict_label) == 0]  # code
-        for lineno in asarray(sharp_inputs_index)[tuple(mask)]:
-            code_item_char.append(tuple_list[lineno])
-        code_list.extend(code_item_char)
-        for item in code_item_token:
-            for item2 in code_item_char:
-                if item.get('content') == item2.get('content') \
-                        and item.get('lineno') == item2.get('lineno') \
-                        and item.get('file_path') == item2.get('file_path'):
-                    break
-            else:
-                code_list.append(item)
-        print("Total number of commented code: .", len(code_list))
-        self.dump_res(code_list)
+        comments = [x.get('content') for x in comment_info]
+        comment_inps, comment_idx = self.text_2_token(comments)
+        predict_label = (self.mt.predict(comment_inps) > 0.5).astype("int32")
+        co_from_mt = []
+        mask = [squeeze(predict_label) == 0]
+        for lineno in asarray(comment_idx)[tuple(mask)]:
+            co_from_mt.append(comment_info[lineno])
+
+        comments = [x.get('content') for x in comment_info]
+        comment_inps, comment_idx = self.text_2_char(comments)
+        predict_label = (self.mc.predict(comment_inps) > 0.5).astype("int32")
+        co_from_mc = []
+        mask = [squeeze(predict_label) == 0]
+        for lineno in asarray(comment_idx)[tuple(mask)]:
+            co_from_mc.append(comment_info[lineno])
+        cos.extend(co_from_mc)
+
+        if self.level == 0:
+            for i in co_from_mt:
+                for j in co_from_mc:
+                    if i.get('content') == j.get('content') \
+                            and i.get('lineno') == j.get('lineno') \
+                            and i.get('file_path') == j.get('file_path'):
+                        break
+                else:
+                    cos.append(i)
+        print("In total, {} Commented-out codes were checked.".format(len(cos)))
+        self.output_res(cos)
 
     def contains_code(self, lines):
         waiting_line_index = []
@@ -266,15 +278,15 @@ class Classifier(object):
             except:
                 waiting_line_index.append(index)  # 不通过说明from语句没通过编译
         # 然后切分成token再输入token模型
-        sharp_inputs, _ = self.from_text_to_token_input_and_index([lines[x] for x in waiting_line_index])
-        predict_labels = (self.lstm_model_token.predict(sharp_inputs) > 0.5).astype("int32")
+        comment_inps, _ = self.text_2_token([lines[x] for x in waiting_line_index])
+        predict_labels = (self.mt.predict(comment_inps) > 0.5).astype("int32")
         mask = [squeeze(predict_labels) == 0][0]  # code
         for index, label in enumerate(mask):
-            if label: # code
+            if label:  # code
                 code_line_index.add(waiting_line_index[index])
         # 最后使用character模型逐字符判断
-        sharp_inputs, _ = self.from_text_to_character_input_and_index([lines[x] for x in waiting_line_index])
-        predict_label = (self.lstm_model_character.predict(sharp_inputs) > 0.5).astype("int32")
+        comment_inps, _ = self.text_2_char([lines[x] for x in waiting_line_index])
+        predict_label = (self.mc.predict(comment_inps) > 0.5).astype("int32")
         mask = [squeeze(predict_label) == 0][0]  # code
         for index, label in enumerate(mask):
             if label:  # code
@@ -284,10 +296,18 @@ class Classifier(object):
             result[index] = True
         return result
 
-    def dump_res(self, tuple_list):
-        """添加一些其他信息，然后整合成code_warning.json"""
-        with open(os.path.join(self.res_path, 'code_warning.json'), 'w') as f:
-            dump({'problems': tuple_list}, f)
+    def output_res(self, comment_info):
+        with open(os.path.join('results', 'code_warning.json'), 'w') as f:
+            dump({'problems': comment_info}, f)
+        parse_js()
+
+    def pretty_print(self, lines, lines_res):
+        print("py文件中的注释如下，将code打印为红色，docstring打印为绿色")
+        for line, line_res in zip(lines, lines_res):
+            if line_res:
+                print(f"\033[31m{line}\033[0m")  # code
+            else:
+                print(f"\033[32m{line}\033[0m")  # docstring
 
 
 def main():
@@ -311,9 +331,17 @@ def main():
                         default='vocabs/vocab_20000.txt',
                         dest='vocab_path')
 
-    parser.add_argument('-o', dest='res_path',
-                        default='results',
-                        help='output file path')
+    parser.add_argument('-l', dest='level',
+                        default=0,
+                        help='checker scan level')
+
+    parser.add_argument('-o', dest='output',
+                        default='file',
+                        help='output to file or print')
+
+    parser.add_argument('-r', dest='recursive',
+                        action='store_true',
+                        help='search subdir')
 
     args = parser.parse_args()
 
@@ -321,11 +349,14 @@ def main():
             'mc_path': args.mc_path,
             'mt_path': args.mt_path,
             'vocab_path': args.vocab_path,
-            'res_path': args.res_path,
+            'level': args.level,
+            'output': args.output,
+            'recursive': args.recursive
             }
 
-    classifier = Classifier(**args)
-    classifier.classify()
+    comment_checker = CommentChecker(**args)
+    comment_checker.check()
+
 
 if __name__ == '__main__':
     main()
