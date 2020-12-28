@@ -1,7 +1,7 @@
 '''
 Date: 2020-12-28 08:54:28
 LastEditors: superlova
-LastEditTime: 2020-12-28 16:05:29
+LastEditTime: 2020-12-28 16:59:32
 FilePath: /codeclf/comment_checker.py
 '''
 
@@ -13,9 +13,9 @@ from argparse import ArgumentParser
 from numpy import asarray, squeeze
 from tensorflow.keras.models import load_model
 from tensorflow.keras.preprocessing import sequence
-from parsejson import parse_js
+from checker_utils import parse_js, pretty_print, create_generator
 
-from utils.Utils import create_generator
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
 
 class CommentChecker(object):
@@ -206,6 +206,9 @@ class CommentChecker(object):
         return reduced_set, code_set
 
     def check(self):
+        if not os.path.exists(self.scan_path):
+            print("Path or file not exists! please check input and try again.")
+            return
         if self.scan_path.endswith('.py'):
             path = os.path.abspath(self.scan_path)
             comment_info = self.read_comments([path])
@@ -221,7 +224,7 @@ class CommentChecker(object):
             for dic in comment_info:
                 lines.append(dic['content'])
             comment_res = self.contains_code(lines)
-            self.pretty_print(lines, comment_res)
+            pretty_print(lines, comment_res)
             return
 
         comment_info, cos = self.reduce_sharp_by_rule(comment_info)
@@ -282,18 +285,20 @@ class CommentChecker(object):
                 waiting_line_index.append(index)  # 不通过说明from语句没通过编译
         # 然后切分成token再输入token模型
         comment_inps, _ = self.text_2_token([lines[x] for x in waiting_line_index])
-        predict_labels = (self.mt.predict(comment_inps) > 0.5).astype("int32")
-        mask = [squeeze(predict_labels) == 0][0]  # code
-        for index, label in enumerate(mask):
-            if label:  # code
-                code_line_index.add(waiting_line_index[index])
+        if len(comment_inps) != 0:
+            predict_labels = (self.mt.predict(comment_inps) > 0.5).astype("int32")
+            mask = [squeeze(predict_labels) == 0][0]  # code
+            for index, label in enumerate(mask):
+                if label:  # code
+                    code_line_index.add(waiting_line_index[index])
         # 最后使用character模型逐字符判断
         comment_inps, _ = self.text_2_char([lines[x] for x in waiting_line_index])
-        predict_label = (self.mc.predict(comment_inps) > 0.5).astype("int32")
-        mask = [squeeze(predict_label) == 0][0]  # code
-        for index, label in enumerate(mask):
-            if label:  # code
-                code_line_index.add(waiting_line_index[index])
+        if len(comment_inps) != 0:
+            predict_label = (self.mc.predict(comment_inps) > 0.5).astype("int32")
+            mask = [squeeze(predict_label) == 0][0]  # code
+            for index, label in enumerate(mask):
+                if label:  # code
+                    code_line_index.add(waiting_line_index[index])
         result = [False] * len(lines)
         for index in code_line_index:
             result[index] = True
@@ -306,20 +311,12 @@ class CommentChecker(object):
             dump({'problems': comment_info}, f)
         parse_js()
 
-    def pretty_print(self, lines, lines_res):
-        print("py文件中的注释如下，将code打印为红色，docstring打印为绿色")
-        for line, line_res in zip(lines, lines_res):
-            if line_res:
-                print(f"\033[31m{line}\033[0m")  # code
-            else:
-                print(f"\033[32m{line}\033[0m")  # docstring
-
 
 def main():
     parser = ArgumentParser(description='Check if pyfile contains commented-out code.')
 
     parser.add_argument(dest='scan_path', metavar='scan_path',
-                        help='Check project root path')
+                        help='Python file or path contents python files.')
 
     parser.add_argument('-mc', '--mc_path',
                         metavar='mc_path',
@@ -338,15 +335,15 @@ def main():
 
     parser.add_argument('-a', '--aggresive', dest='aggresive',
                         action='store_true',
-                        help='use aggresive mode')
+                        help='Use aggresive mode to find more codes.')
 
-    parser.add_argument('-o', dest='output',
+    parser.add_argument('-o', '--output', dest='output',
                         action='store_true',
-                        help='save results to csv')
+                        help='Save results to csv file.')
 
-    parser.add_argument('-r', dest='recursive',
+    parser.add_argument('-r', '--recursive', dest='recursive',
                         action='store_true',
-                        help='search subdir')
+                        help='Search path recursively.')
 
     args = parser.parse_args()
 
