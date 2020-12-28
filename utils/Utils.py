@@ -9,8 +9,8 @@ import signal
 from time import process_time
 from functools import wraps
 
-import numpy as np
-import six
+from numpy import asarray, max, issubdtype, full, array, squeeze, str_, unicode_
+from six import string_types
 
 from sklearn.metrics import f1_score, precision_score, recall_score, accuracy_score, roc_auc_score
 
@@ -117,22 +117,22 @@ def pad_sequences(sequences, maxlen=None, dtype='int32',
         try:
             lengths.append(len(x))
             if flag and len(x):
-                sample_shape = np.asarray(x).shape[1:]
+                sample_shape = asarray(x).shape[1:]
                 flag = False
         except TypeError:
             raise ValueError('`sequences` must be a list of iterables. '
                              'Found non-iterable: ' + str(x))
 
     if maxlen is None:
-        maxlen = np.max(lengths)
+        maxlen = max(lengths)
 
-    is_dtype_str = np.issubdtype(dtype, np.str_) or np.issubdtype(dtype, np.unicode_)
-    if isinstance(value, six.string_types) and dtype != object and not is_dtype_str:
+    is_dtype_str = issubdtype(dtype, str_) or issubdtype(dtype, unicode_)
+    if isinstance(value, string_types) and dtype != object and not is_dtype_str:
         raise ValueError("`dtype` {} is not compatible with `value`'s type: {}\n"
                          "You should set `dtype=object` for variable length strings."
                          .format(dtype, type(value)))
 
-    x = np.full((num_samples, maxlen) + sample_shape, value, dtype=dtype)
+    x = full((num_samples, maxlen) + sample_shape, value, dtype=dtype)
     for idx, s in enumerate(sequences):
         if not len(s):
             continue  # empty list/array was found
@@ -145,7 +145,7 @@ def pad_sequences(sequences, maxlen=None, dtype='int32',
                              'not understood' % truncating)
 
         # check `trunc` has expected shape
-        trunc = np.asarray(trunc, dtype=dtype)
+        trunc = asarray(trunc, dtype=dtype)
         if trunc.shape[1:] != sample_shape:
             raise ValueError('Shape of sample %s of sequence at position %s '
                              'is different from expected shape %s' %
@@ -211,7 +211,7 @@ def progress(percent, width=50):
 
 
 def compute_metrics(model, validation_data):
-    val_predict = (np.asarray(model.predict(validation_data[0]))).round()
+    val_predict = (asarray(model.predict(validation_data[0]))).round()
     val_targ = validation_data[1]
     _val_acc = accuracy_score(val_targ, val_predict)
     _val_f1 = f1_score(val_targ, val_predict)
@@ -230,12 +230,12 @@ class Metrics(Callback):
         for _, batch_label in self.validation_data.take(self.valid_steps):
             for label in batch_label:
                 self.validation_label.append(label.numpy())
-        self.validation_label = np.asarray(self.validation_label)
+        self.validation_label = asarray(self.validation_label)
 
     def on_epoch_end(self, epoch, logs=None):
         logs = logs or {}
-        val_predict = np.asarray(self.model.predict(self.validation_data, steps=self.valid_steps)).round()
-        val_predict = np.squeeze(val_predict)
+        val_predict = asarray(self.model.predict(self.validation_data, steps=self.valid_steps)).round()
+        val_predict = squeeze(val_predict)
         val_targ = self.validation_label
         logging.info(f"val_predict.shape: {val_predict.shape}")
 
@@ -243,10 +243,7 @@ class Metrics(Callback):
         _val_recall = recall_score(val_targ, val_predict)
         _val_precision = precision_score(val_targ, val_predict)
         _val_auc = roc_auc_score(val_targ, val_predict)
-        # try:
-        #     _val_auc = roc_auc_score(val_targ, val_predict)
-        # except ValueError:
-        #     _val_auc = 0
+
 
         logs['val_f1'] = _val_f1
         logs['val_recall'] = _val_recall
@@ -257,8 +254,8 @@ class Metrics(Callback):
 
 
 def test_metrics():
-    preds = np.array([1,0,0,1,0])
-    labels = np.array([1,1,0,1,0])
+    preds = array([1,0,0,1,0])
+    labels = array([1,1,0,1,0])
 
     print(f1_score(preds, labels))
 
