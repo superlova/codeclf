@@ -4,7 +4,7 @@ import subprocess
 
 
 def main():
-    python_path = os.path.join(os.path.dirname(sys.executable), 'python.exe')
+    python_path = os.path.join(os.path.dirname(sys.executable), 'python')
     print(python_path)
     tuple_list = [('bilstm_1', 'bta', '3', '3', '0.2', '', '13'),
                   ('bilstm_1', 'tba', '3', '3', '0.2', '', '14'),
