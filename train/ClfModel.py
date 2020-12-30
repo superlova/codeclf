@@ -34,7 +34,7 @@ class BasicModel(object):
             return
         self.model.save(save_path)
 
-    def plot_history(self):
+    def plot_history(self, name='plot'):
         if not self.history:
             print('No training history. Please training first.')
             return
@@ -44,6 +44,7 @@ class BasicModel(object):
         plt.ylabel('Accuracy')
         plt.xlabel('Epoch')
         plt.legend(['Train', 'Test'], loc='upper left')
+        plt.savefig('{}.pdf'.format(name))
         plt.show()
 
     # def compute_metrics(self, model, validation_data):
