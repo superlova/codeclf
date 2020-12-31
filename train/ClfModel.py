@@ -45,7 +45,7 @@ class BasicModel(object):
         plt.xlabel('Epoch')
         plt.legend(['Train', 'Test'], loc='upper left')
         plt.savefig('{}.pdf'.format(name))
-        plt.show()
+        # plt.show()
 
     # def compute_metrics(self, model, validation_data):
     #     val_predict = (np.asarray(model.predict(validation_data[0]))).round()
