@@ -73,6 +73,7 @@ def train(model_type, context_mode, context_before, context_after, data_num, voc
 
 def main():
     logging.basicConfig(
+        filename='train1.log',
         level=logging.INFO
     )
     parser = ArgumentParser(description='train')
