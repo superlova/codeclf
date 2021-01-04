@@ -1,0 +1,6 @@
+datasets/df_valid_line.tar.bz2 filter=lfs diff=lfs merge=lfs -text
+datasets/df_test_corpus.tar.bz2 filter=lfs diff=lfs merge=lfs -text
+datasets/df_test_line.tar.bz2 filter=lfs diff=lfs merge=lfs -text
+datasets/df_train_corpus.tar.bz2 filter=lfs diff=lfs merge=lfs -text
+datasets/df_train_line.tar.bz2 filter=lfs diff=lfs merge=lfs -text
+datasets/df_valid_corpus.tar.bz2 filter=lfs diff=lfs merge=lfs -text
