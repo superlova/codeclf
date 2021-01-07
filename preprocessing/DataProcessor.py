@@ -85,6 +85,20 @@ class DataProcessor(object):
         dataset = dataset.shuffle(100000, reshuffle_each_iteration=reshuffle).repeat()
         return dataset
 
+    def process_context_tfdata_allfile(self, file_texts, reshuffle=True):
+        """将df['code']分行、获得上下文、转化为dataset并打乱"""
+        codes, docs = self.context_encoder.context_encode_allfile(file_texts)
+        df_codes = pd.DataFrame(data=codes, columns=['context', 'text', 'label'])
+        df_docs = pd.DataFrame(data=docs, columns=['context', 'text', 'label'])
+
+        print(f"df_codes:{len(df_codes)}, df_docs:{len(df_docs)}")
+        df = pd.concat([df_codes, df_docs], ignore_index=True)
+
+        label = df.pop('label')
+        dataset = tf.data.Dataset.from_tensor_slices((df.values, label.values))
+        dataset = dataset.shuffle(100000, reshuffle_each_iteration=reshuffle).repeat()
+        return dataset
+
 
 def test_process():
     corpus_path = '../datasets/df_test_corpus.tar.bz2'

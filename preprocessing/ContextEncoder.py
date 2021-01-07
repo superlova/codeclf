@@ -169,6 +169,38 @@ class ContextEncoder(object):
             docs.extend(sub_docs)
         return codes, docs
 
+    def context_encode_all(self, text):
+        """
+                输入（一个python文件内的所有）文本，输出每行的上下文、每行的label的字典构成的列表。其中上下文是字符串形式。
+                :param text:
+                :param before:
+                :param after:
+                :return:
+                """
+        codes = []
+        docs = []
+        # 逐个扫描每个py文件，标记每行的类别
+        text = text.split('\n')
+        text = [line for line in text if len(line) > 0]  # 只留下非空行
+        fsm = FSM(text)
+        fsm.scan()
+        for index in fsm.codes:
+            item = {'context': "\n".join(text), 'text': text[index], 'label': 0}
+            codes.append(item)
+        for index in fsm.docs:
+            item = {'context': "\n".join(text), 'text': text[index], 'label': 1}
+            docs.append(item)
+        return codes, docs
+
+    def context_encode_allfile(self, file_texts):
+        codes = []
+        docs = []
+        for corpus in file_texts:
+            sub_codes, sub_docs = self.context_encode_all(corpus)
+            codes.extend(sub_codes)
+            docs.extend(sub_docs)
+        return codes, docs
+
 
 @timethis
 def process(corpus_path, output_path, before=1, after=1):
@@ -240,6 +272,21 @@ def test_context_merge():
         print("text", row[1])
         print("after", row[2])
 
+def test_context_encode_allfile():
+    corpus_path = '../datasets/df_test_corpus.tar.bz2'
+    df_data = pd.read_pickle(corpus_path)
+    data = df_data['code'][:90]
+
+    processor = ContextEncoder()
+    codes, docs = processor.context_encode_allfile(data)
+    print(codes[0])
+    print(docs[0])
+
+def test_context_encode_allfile_filelen():
+    df_train = pd.read_pickle('../datasets/df_train_corpus.tar.bz2')
+    df_test = pd.read_pickle('../datasets/df_test_corpus.tar.bz2')
+    df_valid = pd.read_pickle('../datasets/df_valid_corpus.tar.bz2')
+
 
 def main():
     logging.basicConfig(
@@ -248,7 +295,8 @@ def main():
     # test_process()
     # test_context_merge()
     # test_context_divide_all()
-    test_context_merge()
+    # test_context_merge()
+    test_context_encode_allfile()
 
 
 if __name__ == '__main__':

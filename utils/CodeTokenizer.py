@@ -453,6 +453,32 @@ class ContextCodeTokenizer(SimpleCodeTokenizer):
         sum_id = np.concatenate([cls, text_id, sep, before_id, sep, after_id, sep])
         return pad_sequences(np.asarray([sum_id]), padding='post', value=0, maxlen=maxlen)[0]
 
+    def from_feature_to_token_id_ct(self, context, text, maxlen):
+        """
+                遵循context+text的编码顺序
+                :param feature:
+                :return:
+                """
+        context_id = self.from_row_to_token_id(context)
+        text_id = self.from_row_to_token_id(text)
+        cls = [self.vocab.get('<CLS>')]
+        sep = [self.vocab.get('<SEP>')]
+        sum_id = np.concatenate([cls, context_id, sep, text_id, sep])
+        return pad_sequences(np.asarray([sum_id]), padding='post', value=0, maxlen=maxlen)[0]
+
+    def from_feature_to_token_id_tc(self, context, text, maxlen):
+        """
+                遵循text+context的编码顺序
+                :param feature:
+                :return:
+                """
+        context_id = self.from_row_to_token_id(context)
+        text_id = self.from_row_to_token_id(text)
+        cls = [self.vocab.get('<CLS>')]
+        sep = [self.vocab.get('<SEP>')]
+        sum_id = np.concatenate([cls, text_id, sep, context_id, sep])
+        return pad_sequences(np.asarray([sum_id]), padding='post', value=0, maxlen=maxlen)[0]
+
 
 class ContextCodeSplitTokenizer(ContextCodeTokenizer):
     def __init__(self, vocab_file):
@@ -516,6 +542,7 @@ class ContextCodeSplitTokenizer(ContextCodeTokenizer):
     def is_adjacent_id(row):
         '''屏蔽该方法，因为经过split必然会导致两个id紧靠在一起'''
         pass
+
 
 
 ########################################

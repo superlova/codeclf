@@ -640,6 +640,272 @@ class ContextSpiltModel(ContextModel):
         self.VOCAB_SIZE = len(self.tokenizer.vocab)
 
 
+class ContextAllModel(ContextModel):
+    def __init__(self, context_lim=1500, input_length=30, text_emb_dim=200, context_emb_dim=200, batch_size=128, epochs=40, text_hidden_dim=32, context_hidden_dim=256,
+                 context_mode='ct'):
+        super().__init__()
+        self.BATCH_SIZE = batch_size
+        self.EPOCHS = epochs
+        self.CONTEXT_LIM = context_lim
+        self.INPUT_LENGTH = input_length
+        self.CONTEXT_MODE = context_mode
+
+        self.TEXT_EMB_DIM = text_emb_dim
+        self.CONTEXT_EMB_DIM = context_emb_dim
+        self.TEXT_HIDDEN_DIM = text_hidden_dim
+        self.CONTEXT_HIDDEN_DIM = context_hidden_dim
+
+    def load_vocab(self, vocab_path):
+        self.tokenizer = ContextCodeTokenizer(vocab_path)
+        self.VOCAB_SIZE = len(self.tokenizer.vocab)
+
+    @staticmethod
+    def _feature_to_id_ct(features, label, tokenizer, input_length):
+        """Context特有的方法，将dataset中的上下文结合到一起并生成ids"""
+        return tokenizer.from_feature_to_token_id_ct(features[0].decode("utf-8"), features[1].decode("utf-8"),
+                                                     maxlen=input_length), label
+
+    @staticmethod
+    def _feature_to_id_tc(features, label, tokenizer, input_length):
+        """Context特有的方法，将dataset中的上下文结合到一起并生成ids"""
+        return tokenizer.from_feature_to_token_id_tc(features[0].decode("utf-8"), features[1].decode("utf-8"),
+                                                     maxlen=input_length), label
+
+    @timethis
+    def load_datasets(self, train_path, valid_path, frac=1.0):
+        """输入corpus_path
+        """
+        df_train = pd.read_pickle(train_path)
+        df_valid = pd.read_pickle(valid_path)
+        df_train = df_train['code']
+        df_valid = df_valid['code']
+
+        df_train = df_train.sample(frac=frac, random_state=42)
+        df_valid = df_valid.sample(frac=frac, random_state=42)
+        print(f'limiting training dataset: {len(df_train)}')
+        print(f'limiting valid dataset: {len(df_valid)}')
+
+        self.TRAIN_SIZE = len(df_train)
+        self.VALID_SIZE = len(df_valid)
+
+        logging.info(f"{len(df_train)}, {len(df_valid)}")
+
+        if self.CONTEXT_MODE == 'ct':
+            feature_to_id = functools.partial(self._feature_to_id_ct, tokenizer=self.tokenizer,
+                                              input_length=self.INPUT_LENGTH)
+        elif self.CONTEXT_MODE == 'tc':
+            feature_to_id = functools.partial(self._feature_to_id_tc, tokenizer=self.tokenizer,
+                                              input_length=self.INPUT_LENGTH)
+        else:
+            feature_to_id = functools.partial(self._feature_to_id_ct, tokenizer=self.tokenizer,
+                                              input_length=self.INPUT_LENGTH)
+
+        def tf_feature_to_id(features, label):
+            """Context特有的方法，将feature_to_id_bta包装为tf.py_function"""
+            label_shape = label.shape
+            [features, label] = tf.numpy_function(feature_to_id,
+                                                  inp=[features, label],
+                                                  Tout=[tf.int32, tf.int64])
+            features.set_shape((self.INPUT_LENGTH,))
+            label.set_shape(label_shape)
+            return features, label
+
+        dp = DataProcessor()
+        ds_train = dp.process_context_tfdata_allfile(df_train)
+        ds_valid = dp.process_context_tfdata_allfile(df_valid, reshuffle=False)
+
+        ds_train = ds_train.map(tf_feature_to_id, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+
+        train_code_ds = (ds_train
+                         .filter(lambda features, label: label == 0)
+                         .shuffle(100000)
+                         .repeat())
+        train_docs_ds = (ds_train
+                         .filter(lambda features, label: label == 1)
+                         .shuffle(100000)
+                         .repeat())
+        self.train_ds = tf.data.experimental.sample_from_datasets(
+            [train_code_ds, train_docs_ds],
+            weights=[0.5, 0.5])
+        self.train_ds = self.train_ds.batch(self.BATCH_SIZE).prefetch(tf.data.experimental.AUTOTUNE)
+
+        self.val_ds = ds_valid.map(tf_feature_to_id, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+        self.val_ds = self.val_ds.batch(self.BATCH_SIZE).prefetch(tf.data.experimental.AUTOTUNE)
+
+    def _make_lstm_1(self):
+        model = tf.keras.Sequential([
+            tf.keras.layers.Embedding(input_dim=self.VOCAB_SIZE, input_length=self.INPUT_LENGTH,
+                                      output_dim=self.EMBEDDING_DIM),
+            tf.keras.layers.LSTM(self.HIDDEN_DIM, dropout=0.5),
+            tf.keras.layers.Dense(1, activation='sigmoid')
+        ])
+        return model
+
+    def _make_lstm_3(self):
+        model = tf.keras.Sequential([
+            tf.keras.layers.Embedding(input_dim=self.VOCAB_SIZE, input_length=self.INPUT_LENGTH,
+                                      output_dim=self.EMBEDDING_DIM),
+            tf.keras.layers.LSTM(self.HIDDEN_DIM, return_sequences=True, dropout=0.5),
+            tf.keras.layers.LSTM(self.HIDDEN_DIM, return_sequences=True, dropout=0.5),
+            tf.keras.layers.LSTM(self.HIDDEN_DIM, dropout=0.5),
+            tf.keras.layers.Dense(1, activation='sigmoid')
+        ])
+        return model
+
+    def _make_bilstm_1(self):
+        model = tf.keras.Sequential([
+            tf.keras.layers.Embedding(input_dim=self.VOCAB_SIZE, input_length=self.INPUT_LENGTH,
+                                      output_dim=self.EMBEDDING_DIM),
+            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(self.HIDDEN_DIM, dropout=0.5)),
+            tf.keras.layers.Dense(1, activation='sigmoid')
+        ])
+        return model
+
+    def _make_bilstm_3(self):
+        model = tf.keras.Sequential([
+            tf.keras.layers.Embedding(input_dim=self.VOCAB_SIZE, input_length=self.INPUT_LENGTH,
+                                      output_dim=self.EMBEDDING_DIM),
+            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(self.HIDDEN_DIM, return_sequences=True, dropout=0.5)),
+            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(self.HIDDEN_DIM, return_sequences=True, dropout=0.5)),
+            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(self.HIDDEN_DIM, dropout=0.5)),
+            tf.keras.layers.Dense(1, activation='sigmoid')
+        ])
+        return model
+
+    def _make_bilstm_3_dense(self):
+        model = tf.keras.Sequential([
+            tf.keras.layers.Embedding(input_dim=self.VOCAB_SIZE, input_length=self.INPUT_LENGTH,
+                                      output_dim=self.EMBEDDING_DIM),
+            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(self.HIDDEN_DIM, return_sequences=True, dropout=0.5)),
+            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(self.HIDDEN_DIM, return_sequences=True, dropout=0.5)),
+            tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(self.HIDDEN_DIM, dropout=0.5)),
+            tf.keras.layers.Dense(100, activation='relu'),
+            tf.keras.layers.Dense(1, activation='sigmoid')
+        ])
+        return model
+
+    def _make_context_model(self):
+
+        # self.EMBEDDING_DIM = embedding_dim
+        # self.BATCH_SIZE = batch_size
+        # self.EPOCHS = epochs
+        # self.CONTEXT_LIM = context_lim
+        # self.INPUT_LENGTH = input_length
+        # self.HIDDEN_DIM = hidden_dim
+
+
+        text_input = tf.keras.Input(shape=(None,), name='text')
+        context_input = tf.keras.Input(shape=(None,), name='context')
+
+        text_feat = tf.keras.layers.Embedding(self.VOCAB_SIZE, self.TEXT_EMB_DIM)(text_input)
+        context_feat = tf.keras.layers.Embedding(self.VOCAB_SIZE, self.CONTEXT_EMB_DIM)(context_input)
+
+        text_feat = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(self.TEXT_HIDDEN_DIM))(text_feat)
+        context_feat = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(self.CONTEXT_HIDDEN_DIM))(context_feat)
+        features = tf.keras.layers.concatenate([context_feat, text_feat])
+
+        text_pred = tf.keras.layers.Dense(1, activation='sigmoid', name='pred')(features)
+
+        model = tf.keras.Model(inputs=[text_input, context_input],
+                            outputs=[text_pred])
+        model.summary()
+        return model
+
+    def construct_model(self, model_type='lstm_1'):
+        if model_type == 'lstm_1':
+            self.model = self._make_lstm_1()
+        elif model_type == 'lstm_3':
+            self.model = self._make_lstm_3()
+        elif model_type == 'bilstm_1':
+            self.model = self._make_bilstm_1()
+        elif model_type == 'bilstm_3':
+            self.model = self._make_bilstm_3()
+        elif model_type == 'bilstm_3_dense':
+            self.model = self._make_bilstm_3_dense()
+        else:
+            self.model = self._make_bilstm_3_dense()
+
+        self.model.compile(optimizer='adam',
+                           loss=tf.keras.losses.BinaryCrossentropy(from_logits=True),
+                           metrics=['accuracy'])
+        self.model.summary()
+
+    @timethis
+    def train_model(self, checkpoint_save_path, patience=5):
+        def get_checkpoint_callback(checkpoint_path):
+            cp_callbacks = tf.keras.callbacks.ModelCheckpoint(
+                filepath=checkpoint_path,
+                save_weights_only=True,
+                save_best_only=True)
+            return cp_callbacks
+
+        def get_earlystop_callback(patience=5):
+            es_callbacks = tf.keras.callbacks.EarlyStopping(
+                monitor='val_loss', patience=patience
+            )
+            return es_callbacks
+
+        if os.path.exists(checkpoint_save_path + '.index'):
+            print('Checkpoint detected, loading the model...')
+            self.model.load_weights(checkpoint_save_path)
+        check_point = get_checkpoint_callback(checkpoint_save_path)
+        early_stopping = get_earlystop_callback(patience)
+
+        steps_per_epoch = tf.math.ceil(self.TRAIN_SIZE / self.BATCH_SIZE).numpy()
+        validation_steps = tf.math.ceil(self.VALID_SIZE / self.BATCH_SIZE).numpy()
+
+        logging.info("metrics start")
+        metrics = Metrics(valid_data=self.val_ds,
+                          valid_steps=validation_steps)
+        logging.info("metric end")
+
+        self.history = self.model.fit(self.train_ds, epochs=self.EPOCHS, validation_data=self.val_ds,
+                                      callbacks=[metrics,
+                                                 check_point,
+                                                 early_stopping],
+                                      steps_per_epoch=steps_per_epoch, validation_steps=validation_steps)
+
+    @timethis
+    def evaluate(self, test_path):
+        """corpus_path"""
+        if not self.model:
+            print('Model not exist. Please training first.')
+            return
+        # if not self.test_ds:
+        df_test = pd.read_pickle(test_path)
+        df_test = df_test['code']
+        self.TEST_SIZE = len(df_test)
+
+        if self.CONTEXT_MODE == 'ct':
+            feature_to_id = functools.partial(self._feature_to_id_ct, tokenizer=self.tokenizer,
+                                              input_length=self.INPUT_LENGTH)
+        elif self.CONTEXT_MODE == 'tc':
+            feature_to_id = functools.partial(self._feature_to_id_tc, tokenizer=self.tokenizer,
+                                              input_length=self.INPUT_LENGTH)
+        else:
+            feature_to_id = functools.partial(self._feature_to_id_ct, tokenizer=self.tokenizer,
+                                              input_length=self.INPUT_LENGTH)
+
+        def tf_feature_to_id(features, label):
+            """Context特有的方法，将feature_to_id_bta包装为tf.py_function"""
+            label_shape = label.shape
+            [features, label] = tf.numpy_function(feature_to_id,
+                                                  inp=[features, label],
+                                                  Tout=[tf.int32, tf.int64])
+            features.set_shape((self.INPUT_LENGTH,))
+            label.set_shape(label_shape)
+            return features, label
+
+        dp = DataProcessor()
+        ds_test = dp.process_context_tfdata_allfile(df_test)
+        self.test_ds = ds_test.map(tf_feature_to_id, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+        self.test_ds = self.test_ds.batch(self.BATCH_SIZE).prefetch(tf.data.experimental.AUTOTUNE)
+
+        test_steps = tf.math.ceil(self.TEST_SIZE / self.BATCH_SIZE).numpy()
+        loss, acc = self.model.evaluate(self.test_ds, steps=test_steps)
+        print(f'loss: {loss}, acc: {acc}')
+
+
 #########################################
 
 def test_clf_split_model():
