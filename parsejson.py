@@ -44,7 +44,7 @@ def pretty_print(lines, lines_res):
             print(Fore.GREEN + line)
 
 def main():
-    parse_js
+    parse_js()
 
 
 if __name__ == '__main__':

@@ -415,7 +415,7 @@ class Classifier(object):
                 'FQNAME': ''
             }
             dic['description'] = 'Do not use comment lines to make the code invalid.'
-        with open(os.path.join(self.outfile, 'code_warning.json'), 'w') as f:
+        with open(os.path.join(self.outfile, 'commented_out_codes.json'), 'w') as f:
             dump({'problems': tuple_list}, f)
 
 
