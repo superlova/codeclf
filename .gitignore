@@ -3,6 +3,7 @@
 /logs/*
 # /datasets/*
 /datasets/python.zip
+/datasets/df_*_corpus_standardized.tar.bz2
 /checkpoint/*
 /build
 /dist
