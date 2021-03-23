@@ -249,7 +249,7 @@ class Metrics(Callback):
         logs['val_recall'] = _val_recall
         logs['val_precision'] = _val_precision
         logs['val_auc'] = _val_auc
-        print(f"\nval_f1: {_val_f1} — val_precision: {_val_precision} — val_recall: {_val_recall} — val_auc: {_val_auc}")
+        print(f"\nval_precision: {_val_precision}\nval_recall: {_val_recall}\nval_f1: {_val_f1}\nval_auc: {_val_auc}")
         return
 
 

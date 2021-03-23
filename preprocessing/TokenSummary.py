@@ -140,7 +140,7 @@ def save_summary_to_vocab(result, mode, limit):
 def test_make_vocab():
     df_train = pd.read_pickle('../datasets/df_train_line.tar.bz2')
     make_vocab_split_keyword(df_train['data'], 10000)
-    # make_vocab_nosplit_keyword(df_train['data'], 50000)
+    # make_vocab_nosplit_keyword(df_train['data'], 10000)
     # make_vocab_only_keyword(df_train['data'])
 
 
@@ -169,9 +169,10 @@ def main():
     logging.basicConfig(
         level=logging.DEBUG
     )
-    test_vocab_simple()
+    # test_vocab_simple()
     # test_data_generator()
     # test_multiprocessing_simple_vocab()
+    test_make_vocab()
 
 
 if __name__ == '__main__':
