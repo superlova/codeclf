@@ -373,6 +373,39 @@ class ClfSplitModel(ClfModel):
         self.VOCAB_SIZE = len(self.tokenizer.vocab)
 
 
+class AttentionLayer(tf.keras.layers.Layer):
+    def __init__(self, output_dim, **kwargs):
+        self.output_dim = output_dim
+        super(AttentionLayer, self).__init__(**kwargs)
+
+    def build(self, input_shape):
+        self.kernel = self.add_weight(name='kernel', shape=(input_shape[2], 1),
+                                      initializer='uniform',
+                                      trainable=True
+                                      )
+        super(AttentionLayer, self).build(input_shape)
+
+    def call(self, h, **kwargs):
+        M = tf.keras.layers.Activation("tanh")(h)
+        a = tf.matmul(self.kernel, M, transpose_a=True, transpose_b=True)
+        a = tf.keras.layers.Activation("softmax")(a)
+        r = tf.matmul(a, h)
+        h_ = tf.keras.layers.Activation("tanh")(r)
+        # 天坑,不加这个识别不出来形状
+        h_ = tf.squeeze(h_, 1)
+        return h_
+
+    def compute_output_shape(self, input_shape):
+        return (input_shape[0], self.output_dim)
+
+    def get_config(self):
+        config = super().get_config().copy()
+        config.update({
+            'output_dim': self.output_dim
+        })
+        return config
+
+
 class ContextModel(BasicModel):
     def __init__(self, before=1, after=1, embedding_dim=200, batch_size=1024, epochs=40, hidden_dim=50,
                  context_mode='bta'):
@@ -531,6 +564,53 @@ class ContextModel(BasicModel):
         ])
         return model
 
+    def _make_bilstm_att(self, with_fc=False):
+        input_layer = tf.keras.layers.Input(shape=(self.INPUT_LENGTH,), name='feature_input')
+        w = tf.keras.layers.Embedding(input_dim=self.VOCAB_SIZE, output_dim=self.EMBEDDING_DIM,
+                        input_length=self.INPUT_LENGTH)(input_layer)
+        x = w
+        x = tf.keras.layers.Bidirectional(
+            tf.keras.layers.LSTM(
+                self.HIDDEN_DIM,
+                dropout=0.5,
+                return_sequences=True),
+            merge_mode='sum')(x)
+
+        # 与x的最后一层一致
+        x = AttentionLayer(self.HIDDEN_DIM)(x)
+
+        if with_fc:
+            x = tf.keras.layers.Dense(self.HIDDEN_DIM, activation='relu')(x)
+
+        output_layer = tf.keras.layers.Dense(1, activation='sigmoid')(x)
+        model = tf.keras.models.Model(inputs=[input_layer], outputs=[output_layer])
+        return model
+
+    def _conv1d_with_bn_gp(self, filters, kernel_size):
+        blk = tf.keras.models.Sequential()
+        blk.add(tf.keras.layers.Conv1D(filters=filters, kernel_size=kernel_size))
+        blk.add(tf.keras.layers.BatchNormalization())
+        blk.add(tf.keras.layers.Activation("relu"))
+        blk.add(tf.keras.layers.GlobalMaxPool1D())
+        return blk
+
+    def _make_textcnn(self):
+        input_layer = tf.keras.layers.Input(shape=(None,), name='feature_input')
+        x = tf.keras.layers.Embedding(input_dim=self.VOCAB_SIZE, input_length=self.INPUT_LENGTH,
+                                      output_dim=self.EMBEDDING_DIM)(input_layer)
+        x_5 = self._conv1d_with_bn_gp(filters=self.HIDDEN_DIM, kernel_size=5)(x)
+        x_4 = self._conv1d_with_bn_gp(filters=self.HIDDEN_DIM, kernel_size=4)(x)
+        x_3 = self._conv1d_with_bn_gp(filters=self.HIDDEN_DIM, kernel_size=3)(x)
+
+        x = tf.keras.layers.concatenate([x_3, x_4, x_5])
+        x = tf.keras.layers.Dense(100, activation='relu', name="feature_output")(x)
+        x = tf.keras.layers.Dropout(0.5)(x)
+        output_layer = tf.keras.layers.Dense(1, activation='sigmoid')(x)
+
+        model = tf.keras.models.Model(inputs=[input_layer], outputs=[output_layer])
+        return model
+
+
     def construct_model(self, model_type='lstm_1'):
         if model_type == 'lstm_1':
             self.model = self._make_lstm_1()
@@ -542,6 +622,10 @@ class ContextModel(BasicModel):
             self.model = self._make_bilstm_3()
         elif model_type == 'bilstm_3_dense':
             self.model = self._make_bilstm_3_dense()
+        elif model_type == 'textcnn':
+            self.model = self._make_textcnn()
+        elif model_type == 'bilstm_att':
+            self.model = self._make_bilstm_att()
         else:
             self.model = self._make_bilstm_3_dense()
 
@@ -841,6 +925,45 @@ def test_char_model():
     logging.info('evaluating model...')
     cm.evaluate(test_path='../datasets/df_test_line.tar.bz2')
 
+def test_context_model_textcnn():
+    trainer = ContextModel(before=1, after=1, context_mode='bta')
+    trainer.load_vocab('../vocabs/nosplit_keyword_vocab10000.txt')
+
+    logging.info('loading training data...')
+    trainer.load_datasets(train_path='../datasets/df_train_corpus.tar.bz2',
+                          valid_path='../datasets/df_valid_corpus.tar.bz2',
+                          frac=0.2)
+
+    logging.info('datasets ready!')
+    trainer.construct_model(model_type='textcnn')
+
+    logging.info('start training...')
+    trainer.train_model(checkpoint_save_path='../checkpoint/textcnn')
+
+    # logging.info('saving model...')
+    # trainer.save_model('../models/bilstm_3_dense.hdf5')
+
+    # trainer.plot_history()
+
+    # logging.info('evaluating model...')
+    # trainer.evaluate(test_path='../datasets/df_test_corpus.tar.bz2')
+
+
+def test_context_model_bilstm_att():
+    trainer = ContextModel(before=1, after=1, context_mode='bta')
+    trainer.load_vocab('../vocabs/nosplit_keyword_vocab10000.txt')
+
+    logging.info('loading training data...')
+    trainer.load_datasets(train_path='../datasets/df_train_corpus.tar.bz2',
+                          valid_path='../datasets/df_valid_corpus.tar.bz2',
+                          frac=0.1)
+
+    logging.info('datasets ready!')
+    trainer.construct_model(model_type='bilstm_att')
+
+    logging.info('start training...')
+    trainer.train_model(checkpoint_save_path='../checkpoint/bilstm_att')
+
 
 def main():
     logging.basicConfig(
@@ -853,7 +976,9 @@ def main():
     # test_context_model()
     # test_context_split_model()
     # test_valid_data()
-    test_char_model()
+    # test_char_model()
+    # test_context_model_textcnn()
+    test_context_model_bilstm_att()
 
 
 if __name__ == '__main__':
