@@ -950,13 +950,13 @@ def test_context_model_textcnn():
 
 
 def test_context_model_bilstm_att():
-    trainer = ContextModel(before=1, after=1, context_mode='bta')
+    trainer = ContextModel(before=1, after=1, context_mode='bta', epochs=1)
     trainer.load_vocab('../vocabs/nosplit_keyword_vocab10000.txt')
 
     logging.info('loading training data...')
     trainer.load_datasets(train_path='../datasets/df_train_corpus.tar.bz2',
                           valid_path='../datasets/df_valid_corpus.tar.bz2',
-                          frac=0.1)
+                          frac=0.01)
 
     logging.info('datasets ready!')
     trainer.construct_model(model_type='bilstm_att')
