@@ -1,3 +1,10 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+# @Time    : 2021/3/30 9:59
+# @Author  : Zyt
+# @Site    : 
+# @File    : test_0330.py
+# @Software: PyCharm
 '''
 Date: 2020-12-28 08:54:28
 LastEditors: superlova
@@ -16,6 +23,38 @@ from tensorflow.keras.preprocessing import sequence
 from checker_utils import parse_js, pretty_print, create_generator
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+
+
+import os
+#定义代码所在的目录
+base_path = r'C:\Users\zyt\Downloads\Compressed\实验\tf\tensorflow-2.3.2'
+
+#在指定目录下统计所有的py文件，以列表形式返回
+def collect_files(dir):
+    filelist = []
+    for parent,dirnames,filenames in os.walk(dir):
+         for filename in filenames:
+             if filename.endswith('.py'):
+                 #将文件名和目录名拼成绝对路径，添加到列表里
+                 filelist.append(os.path.join(parent,filename))
+    return filelist
+
+#计算单个文件内的代码行数
+def calc_linenum(file):
+    with open(file) as fp:
+        content_list = fp.readlines()
+        code_num = 0  #当前文件代码行数计数变量
+        annotate_num =0  #当前文件注释行数计数变量
+        for content in content_list:
+            content = content.strip()
+            # 统计注释行
+            if content.startswith('#'):
+                annotate_num += 1
+            # 统计代码行
+            else:
+                code_num += 1
+    # 返回代码行数，空行数，注释行数
+    return code_num + annotate_num
 
 
 class CommentChecker(object):
@@ -312,6 +351,10 @@ class CommentChecker(object):
         with open(os.path.join('results', 'commented_out_codes.json'), 'w') as f:
             dump({'problems': comment_info}, f)
         parse_js()
+
+
+def test_scanner():
+    pass
 
 
 def main():

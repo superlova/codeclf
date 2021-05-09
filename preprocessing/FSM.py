@@ -151,6 +151,7 @@ class FSM(object):
 
 def test_DFA():
     corpus = """    def CODE(self, next_line_index):
+    '''fuck you too bitch'''
         next_line = self.text[next_line_index]
         if next_line.lstrip(" ").startswith("#"):
             return DOCSTRING_ONE(next_line)

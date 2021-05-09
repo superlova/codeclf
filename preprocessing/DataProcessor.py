@@ -163,6 +163,12 @@ def test_tf_data_model():
     # print(val_ds)
 
 
+def test_mutator():
+    corpus_path = '../datasets/df_test_corpus.tar.bz2'
+    df_data = pd.read_pickle(corpus_path)
+    data = df_data['code']
+
+
 def main():
     logging.basicConfig(
         level=logging.INFO
